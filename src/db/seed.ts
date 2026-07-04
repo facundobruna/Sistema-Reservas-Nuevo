@@ -129,7 +129,8 @@ async function main() {
       endTime: "23:30",
       turnDurationMin: 120,
       seatingMode: "fixed" as const,
-      fixedTimes: ["20:00", "20:30", "21:00", "21:30", "22:00", "22:30"],
+      // Con turno de 120 min y cierre 23:30, la última entrada posible es 21:30.
+      fixedTimes: ["20:00", "20:30", "21:00", "21:30"],
       pacingCap: 40,
     })),
   );

@@ -82,15 +82,16 @@ src/
     auth/staff/        # login (scoped por slug) / logout
     admin/             # CRUD REST: zones, mesas, seating-units, services, shifts, exceptions, settings
   app/admin/[slug]/    # Panel: login público + rutas protegidas (grupo (protected))
+  app/api/v1/r/[slug]/availability/  # GET público: horarios disponibles
   lib/
-    availability/    # Motor de disponibilidad (computeAvailability, bookReservation) — próximo milestone
+    availability/    # computeAvailability (pura, sin DB) + loadAvailabilityInput (glue con Postgres)
     email/           # Interfaz EmailSender
     auth/            # password.ts (hash scrypt) · session.ts (cookie firmada) · require-staff.ts (guards)
     i18n/            # Copy ES/EN
-    validation/      # Schemas zod compartidos (admin.ts, auth.ts)
+    validation/      # Schemas zod compartidos (admin.ts, auth.ts, booking.ts)
   jobs/             # Workers pg-boss (confirmación + recordatorio)
 tests/
-  unit/             # Motor de disponibilidad (lógica pura)
+  unit/             # Motor de disponibilidad (lógica pura) — los 7 casos obligatorios de la spec
   integration/      # Concurrencia, API
 docker-compose.yml   # Postgres 17 local
 .env.example         # Todas las variables necesarias
@@ -102,3 +103,4 @@ docker-compose.yml   # Postgres 17 local
 - **Anti doble-booking:** `reservation_mesa` tiene un constraint `EXCLUDE USING gist (mesa_id WITH =, periodo WITH &&)` sobre un rango semiabierto (`tstzrange(..., '[)')`) — dos reservas que se tocan en el borde (ej. 20:00–21:30 y 21:30–23:00) no cuentan como solapadas, pero cualquier solape real es rechazado a nivel de base de datos incluso bajo concurrencia.
 - **Mesas y seating units:** el motor de disponibilidad opera siempre sobre `seating_unit`. Cada mesa genera automáticamente su unidad `single`; los combos (`kind='combo'`) enlazan varias mesas para grupos grandes. Un trigger de Postgres (`mesa_delete_cleanup_single_unit`) borra la unidad `single` de una mesa al borrarse esta — por cualquier camino, incluida la cascada al borrar su zona — para que nunca quede una unidad "fantasma" sin mesas reales que el motor pueda ofrecer como disponible.
 - Identificadores de tablas/columnas siguen el vocabulario de la spec (mezcla inglés + `mesa`, `periodo`, `sin_solape`) — no se traducen.
+- **Motor de disponibilidad:** `computeAvailability` es una función pura (sin DB, en `src/lib/availability/compute-availability.ts`), testeada con Vitest. Opera sobre instantes absolutos (UTC) calculados en el timezone del restaurante vía Luxon; el `periodo` semiabierto se respeta también acá (dos turnos que se tocan en el borde no se consideran solapados). `GET /api/v1/r/{slug}/availability?date=&partySize=&zoneId=` arma el input desde Postgres (`loadAvailabilityInput`) y llama a la función pura — la separación es deliberada para que la lógica de negocio se pueda testear sin base de datos.
