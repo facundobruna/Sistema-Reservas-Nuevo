@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Archivo, Fraunces } from "next/font/google";
 import "./globals.css";
+import { Providers } from "./providers";
+import { Toaster } from "@/components/ui/sonner";
 
 const fraunces = Fraunces({
   variable: "--font-display",
@@ -31,7 +33,8 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col bg-background text-foreground font-text">
-        {children}
+        <Providers>{children}</Providers>
+        <Toaster />
       </body>
     </html>
   );

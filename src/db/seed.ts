@@ -4,8 +4,10 @@ import { eq } from "drizzle-orm";
 import { Pool } from "pg";
 import * as schema from "./schema";
 import { createMesa } from "./mesa";
+import { hashPassword } from "../lib/auth/password";
 
 const DEMO_SLUG = "demo";
+const DEMO_OWNER_PASSWORD = "demo1234";
 
 async function main() {
   if (!process.env.DATABASE_URL) {
@@ -144,6 +146,7 @@ async function main() {
     email: "owner@fuegonorte.demo",
     name: "Dueño Demo",
     role: "owner",
+    passwordHash: hashPassword(DEMO_OWNER_PASSWORD),
   });
 
   await pool.end();
@@ -153,6 +156,8 @@ async function main() {
   console.log(`  zonas: ${salon.name}, ${terraza.name}`);
   console.log(`  mesas: ${mesasInput.length} + 2 combos`);
   console.log(`  servicios: ${almuerzo.name}, ${cena.name}`);
+  console.log(`  panel: /admin/${restaurant.slug}/login`);
+  console.log(`  login: owner@fuegonorte.demo / ${DEMO_OWNER_PASSWORD}`);
 }
 
 main().catch((err) => {
