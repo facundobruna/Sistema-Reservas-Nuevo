@@ -82,17 +82,18 @@ src/
     auth/staff/        # login (scoped por slug) / logout
     admin/             # CRUD REST: zones, mesas, seating-units, services, shifts, exceptions, settings
   app/admin/[slug]/    # Panel: login público + rutas protegidas (grupo (protected))
-  app/api/v1/r/[slug]/availability/  # GET público: horarios disponibles
+  app/api/v1/r/[slug]/             # GET público (info) · availability/ · reservations/ (+[id])
   lib/
-    availability/    # computeAvailability (pura, sin DB) + loadAvailabilityInput (glue con Postgres)
+    availability/    # computeAvailability + resolveSlot (puros, sin DB) + loadAvailabilityInput (glue con Postgres)
+    reservation/     # bookReservation: único punto de escritura, transaccional, best-fit + retry de deadlocks
     email/           # Interfaz EmailSender
-    auth/            # password.ts (hash scrypt) · session.ts (cookie firmada) · require-staff.ts (guards)
+    auth/            # signed-token.ts (HMAC compartido) · session.ts (staff) · diner-session.ts (comensal) · require-staff.ts
     i18n/            # Copy ES/EN
     validation/      # Schemas zod compartidos (admin.ts, auth.ts, booking.ts)
   jobs/             # Workers pg-boss (confirmación + recordatorio)
 tests/
-  unit/             # Motor de disponibilidad (lógica pura) — los 7 casos obligatorios de la spec
-  integration/      # Concurrencia, API
+  unit/             # Motor de disponibilidad (lógica pura) — los 7 casos obligatorios de la spec + resolveSlot
+  integration/      # bookReservation bajo concurrencia real contra Postgres
 docker-compose.yml   # Postgres 17 local
 .env.example         # Todas las variables necesarias
 ```
@@ -104,3 +105,5 @@ docker-compose.yml   # Postgres 17 local
 - **Mesas y seating units:** el motor de disponibilidad opera siempre sobre `seating_unit`. Cada mesa genera automáticamente su unidad `single`; los combos (`kind='combo'`) enlazan varias mesas para grupos grandes. Un trigger de Postgres (`mesa_delete_cleanup_single_unit`) borra la unidad `single` de una mesa al borrarse esta — por cualquier camino, incluida la cascada al borrar su zona — para que nunca quede una unidad "fantasma" sin mesas reales que el motor pueda ofrecer como disponible.
 - Identificadores de tablas/columnas siguen el vocabulario de la spec (mezcla inglés + `mesa`, `periodo`, `sin_solape`) — no se traducen.
 - **Motor de disponibilidad:** `computeAvailability` es una función pura (sin DB, en `src/lib/availability/compute-availability.ts`), testeada con Vitest. Opera sobre instantes absolutos (UTC) calculados en el timezone del restaurante vía Luxon; el `periodo` semiabierto se respeta también acá (dos turnos que se tocan en el borde no se consideran solapados). `GET /api/v1/r/{slug}/availability?date=&partySize=&zoneId=` arma el input desde Postgres (`loadAvailabilityInput`) y llama a la función pura — la separación es deliberada para que la lógica de negocio se pueda testear sin base de datos.
+- **Reserva sin doble-booking bajo concurrencia:** `bookReservation` revalida el horario server-side (nunca confía en lo que mandó el cliente) vía `resolveSlot`, y prueba las unidades candidatas en orden best-fit, una transacción por intento. Bajo carga real, Postgres puede resolver dos transacciones que compiten por la misma mesa de dos formas: una viola limpio el `EXCLUDE` (`23P01`, la unidad está tomada) o el detector de deadlocks aborta una de las dos (`40P01`, no dice nada sobre disponibilidad) — `bookReservation` reintenta ante lo segundo y solo pasa a la siguiente unidad ante lo primero. El test de integración de concurrencia lo ejercita de verdad contra Postgres y fue el que hizo aparecer el caso del deadlock.
+- **Reservas confirman al toque:** no hay paso de aprobación manual en ningún punto de la spec — `bookReservation` crea la reserva en estado `confirmed` directamente (no `pending`), consistente con la promesa de cero fricción.

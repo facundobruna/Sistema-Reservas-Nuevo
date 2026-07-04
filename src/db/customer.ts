@@ -1,0 +1,40 @@
+import { eq } from "drizzle-orm";
+import type { db as dbClient } from "./client";
+import { customer, customerRestaurant } from "./schema";
+
+export type FindOrCreateCustomerInput = {
+  phone: string;
+  name?: string;
+  email?: string;
+};
+
+/**
+ * El comensal es una identidad global por teléfono (E.164), compartida entre
+ * restaurantes. `customer_restaurant` es la mirada de ESTE restaurante sobre
+ * ese comensal (no-show/visitas) y se crea en el primer contacto.
+ */
+export async function findOrCreateCustomer(
+  db: typeof dbClient,
+  restaurantId: string,
+  input: FindOrCreateCustomerInput,
+) {
+  return db.transaction(async (trx) => {
+    const [existing] = await trx.select().from(customer).where(eq(customer.phone, input.phone)).limit(1);
+
+    const record =
+      existing ??
+      (
+        await trx
+          .insert(customer)
+          .values({ phone: input.phone, name: input.name, email: input.email })
+          .returning()
+      )[0];
+
+    await trx
+      .insert(customerRestaurant)
+      .values({ restaurantId, customerId: record.id })
+      .onConflictDoNothing({ target: [customerRestaurant.restaurantId, customerRestaurant.customerId] });
+
+    return record;
+  });
+}
