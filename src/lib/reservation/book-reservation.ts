@@ -2,7 +2,7 @@ import { DateTime } from "luxon";
 import { sql } from "drizzle-orm";
 import type { db as dbClient } from "@/db/client";
 import { reservation, reservationMesa } from "@/db/schema";
-import { loadAvailabilityInput, resolveSlot } from "@/lib/availability";
+import { isPast, loadAvailabilityInput, resolveSlot } from "@/lib/availability";
 
 const EXCLUSION_VIOLATION = "23P01";
 const DEADLOCK_DETECTED = "40P01";
@@ -108,6 +108,9 @@ export async function bookReservation(
 ): Promise<BookReservationResult> {
   const date = DateTime.fromISO(params.startsAt, { zone: params.timezone }).toISODate();
   if (!date) return { ok: false, error: "sin_disponibilidad" };
+
+  // No se puede reservar un horario que ya pasó (relevante sobre todo al pedir para "hoy").
+  if (isPast(params.startsAt)) return { ok: false, error: "sin_disponibilidad" };
 
   const availabilityInput = await loadAvailabilityInput(db, {
     restaurantId: params.restaurantId,

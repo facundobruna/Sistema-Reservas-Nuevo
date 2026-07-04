@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db/client";
 import { getRestaurantBySlug } from "@/db/restaurant";
-import { computeAvailability, loadAvailabilityInput } from "@/lib/availability";
+import { computeAvailability, excludePastSlots, loadAvailabilityInput } from "@/lib/availability";
 import { availabilityQuerySchema } from "@/lib/validation/booking";
 
 type Params = { params: Promise<{ slug: string }> };
@@ -31,6 +31,6 @@ export async function GET(request: Request, { params }: Params) {
     zoneId: parsed.data.zoneId,
   });
 
-  const slots = computeAvailability(input);
+  const slots = excludePastSlots(computeAvailability(input));
   return NextResponse.json({ slots });
 }

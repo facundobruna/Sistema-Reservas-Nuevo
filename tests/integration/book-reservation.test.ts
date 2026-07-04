@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { eq, inArray } from "drizzle-orm";
+import { DateTime } from "luxon";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db } from "@/db/client";
 import { createMesa } from "@/db/mesa";
@@ -40,8 +41,12 @@ describe("bookReservation — concurrencia", () => {
       pacingCap: null,
     });
 
-    const today = new Date().toISOString().slice(0, 10);
-    startsAt = new Date(`${today}T12:00:00`).toISOString();
+    // Un horario todavía no pasado, alineado a slot_interval_min=15 (bookReservation
+    // rechaza cualquier startsAt que ya haya pasado — no puede ser un valor fijo del
+    // mediodía, se rompería según a qué hora del día corra el test).
+    const now = DateTime.now().setZone(TZ);
+    const minutesFromNow = Math.ceil((now.minute + 20) / 15) * 15;
+    startsAt = now.set({ minute: 0, second: 0, millisecond: 0 }).plus({ minutes: minutesFromNow }).toUTC().toISO();
   });
 
   afterAll(async () => {
