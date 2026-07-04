@@ -51,6 +51,12 @@ El seed (`pnpm db:seed`, idempotente — se puede correr de nuevo sin duplicar d
 
 `/admin/{slug}/login` → panel en `/admin/{slug}` (zonas, mesas, combos, servicios, turnos, excepciones, configuración). El login es por restaurante (mismo patrón que `/r/{slug}` del comensal) porque el email de un staff solo es único dentro de su restaurante, no globalmente. La sesión es una cookie httpOnly firmada (HMAC, sin tabla de sesiones ni librería de auth). Roles `owner`/`manager` pueden editar configuración; `host` queda para operar la agenda (milestone posterior).
 
+## Flujo de reserva del comensal
+
+`/r/{slug}` — wizard de 5-6 pasos (comensales → fecha → horario → zona *solo si hay más de una* → datos → confirmación), con todo el estado en la URL para que atrás/refresh/compartir el link funcionen. Sin login obligatorio: el comensal se linkea/crea por teléfono en el momento de reservar. Conteo de toques medido y documentado en [docs/friction.md](./docs/friction.md) — es un presupuesto, no crece sin discutirlo.
+
+Login opcional por magic link (`/me`, pedís por teléfono, te llega un link por email — en local se ve por consola) para volver a ver tus reservas desde otro dispositivo. No agrega pasos al flujo de reservar.
+
 ## Scripts
 
 | Comando | Qué hace |
@@ -83,17 +89,23 @@ src/
     admin/             # CRUD REST: zones, mesas, seating-units, services, shifts, exceptions, settings
   app/admin/[slug]/    # Panel: login público + rutas protegidas (grupo (protected))
   app/api/v1/r/[slug]/             # GET público (info) · availability/ · reservations/ (+[id])
+  app/api/v1/auth/diner/            # magic-link (pedir) · verify (canjear)
+  app/api/v1/me/reservations/       # Reservas del comensal logueado (todas las restaurantes)
+  app/r/[slug]/                    # Wizard de reserva (el flujo del comensal)
+  app/me/                          # Página mínima: login por magic link + lista de reservas
   lib/
     availability/    # computeAvailability + resolveSlot (puros, sin DB) + loadAvailabilityInput (glue con Postgres)
     reservation/     # bookReservation: único punto de escritura, transaccional, best-fit + retry de deadlocks
-    email/           # Interfaz EmailSender
-    auth/            # signed-token.ts (HMAC compartido) · session.ts (staff) · diner-session.ts (comensal) · require-staff.ts
-    i18n/            # Copy ES/EN
-    validation/      # Schemas zod compartidos (admin.ts, auth.ts, booking.ts)
+    email/           # Interfaz EmailSender (console-sender.ts local, resend-sender.ts prod)
+    auth/            # signed-token.ts (HMAC compartido) · session.ts (staff) · diner-session.ts · magic-link.ts · require-staff.ts
+    i18n/            # Copy ES/EN + interpolate() para templates con {variables}
+    validation/      # Schemas zod compartidos (admin.ts, auth.ts, booking.ts, phone.ts)
   jobs/             # Workers pg-boss (confirmación + recordatorio)
 tests/
   unit/             # Motor de disponibilidad (lógica pura) — los 7 casos obligatorios de la spec + resolveSlot
   integration/      # bookReservation bajo concurrencia real contra Postgres
+docs/
+  friction.md        # Conteo de toques del flujo de reserva — presupuesto, no crece sin discutirlo
 docker-compose.yml   # Postgres 17 local
 .env.example         # Todas las variables necesarias
 ```
@@ -107,3 +119,4 @@ docker-compose.yml   # Postgres 17 local
 - **Motor de disponibilidad:** `computeAvailability` es una función pura (sin DB, en `src/lib/availability/compute-availability.ts`), testeada con Vitest. Opera sobre instantes absolutos (UTC) calculados en el timezone del restaurante vía Luxon; el `periodo` semiabierto se respeta también acá (dos turnos que se tocan en el borde no se consideran solapados). `GET /api/v1/r/{slug}/availability?date=&partySize=&zoneId=` arma el input desde Postgres (`loadAvailabilityInput`) y llama a la función pura — la separación es deliberada para que la lógica de negocio se pueda testear sin base de datos.
 - **Reserva sin doble-booking bajo concurrencia:** `bookReservation` revalida el horario server-side (nunca confía en lo que mandó el cliente) vía `resolveSlot`, y prueba las unidades candidatas en orden best-fit, una transacción por intento. Bajo carga real, Postgres puede resolver dos transacciones que compiten por la misma mesa de dos formas: una viola limpio el `EXCLUDE` (`23P01`, la unidad está tomada) o el detector de deadlocks aborta una de las dos (`40P01`, no dice nada sobre disponibilidad) — `bookReservation` reintenta ante lo segundo y solo pasa a la siguiente unidad ante lo primero. El test de integración de concurrencia lo ejercita de verdad contra Postgres y fue el que hizo aparecer el caso del deadlock.
 - **Reservas confirman al toque:** no hay paso de aprobación manual en ningún punto de la spec — `bookReservation` crea la reserva en estado `confirmed` directamente (no `pending`), consistente con la promesa de cero fricción.
+- **Branding por tenant:** `restaurant.settings.accentColor` pisa el acento en `/r/{slug}` (ver `src/app/r/[slug]/page.tsx`). Los tokens derivados del acento (`--accent-subtle`, `--ring`, etc.) usan `color-mix()` — y como `color-mix()` se resuelve en el punto donde CADA custom property se declara (no se "recalcula en cascada" al pisar solo `--accent` en un elemento anidado), hay que redeclarar todos los derivados juntos con el color literal del tenant, no alcanza con pisar `--accent` sola.

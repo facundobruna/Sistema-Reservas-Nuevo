@@ -7,6 +7,7 @@ export const es = {
     next: "Siguiente",
     loading: "Cargando…",
     retry: "Reintentar",
+    change: "Cambiar",
   },
   reservationStatus: {
     pending: "Pendiente",
@@ -32,6 +33,58 @@ export const es = {
       description: "Alguien lo tomó justo antes. Elegí otro horario para seguir.",
     },
   },
+  booking: {
+    partySize: {
+      question: "¿Cuántos son?",
+    },
+    date: {
+      question: "¿Qué día?",
+    },
+    time: {
+      question: "¿A qué hora?",
+      subtitle: "Para {n} el {date}",
+    },
+    zone: {
+      question: "¿Dónde preferís sentarte?",
+    },
+    contact: {
+      question: "Tus datos",
+      subtitle: "Para confirmar la reserva",
+    },
+    fields: {
+      name: "Nombre",
+      phone: "Teléfono",
+      email: "Email (opcional)",
+      specialRequests: "Pedido especial (opcional)",
+    },
+    today: "Hoy",
+    tomorrow: "Mañana",
+    person: "persona",
+    people: "personas",
+    noSlots: {
+      title: "No hay horarios disponibles",
+      description: "Probá con otra fecha o menos comensales.",
+    },
+    zoneFull: {
+      title: "Esa zona ya no tiene lugar a esa hora",
+      description: "Elegí otra zona o volvé a elegir horario.",
+    },
+    confirmReservation: "Confirmar reserva",
+    confirming: "Confirmando…",
+    confirmation: {
+      title: "¡Reserva confirmada!",
+      subtitle: "Te esperamos el {date} a las {time}, para {n}.",
+    },
+  },
+  me: {
+    title: "Tus reservas",
+    loginPrompt: "Ingresá tu teléfono para ver tus reservas",
+    sendLink: "Enviarme el link",
+    sending: "Enviando…",
+    linkSentTitle: "Revisá tu email",
+    linkSentDescription: "Te mandamos un link para entrar. Vale 15 minutos.",
+    invalidLink: "Ese link ya no es válido. Pedí uno nuevo.",
+  },
 };
 
 export const en = {
@@ -43,6 +96,7 @@ export const en = {
     next: "Next",
     loading: "Loading…",
     retry: "Retry",
+    change: "Change",
   },
   reservationStatus: {
     pending: "Pending",
@@ -67,5 +121,57 @@ export const en = {
       title: "That time slot is no longer available",
       description: "Someone just took it. Pick another time to continue.",
     },
+  },
+  booking: {
+    partySize: {
+      question: "How many?",
+    },
+    date: {
+      question: "What day?",
+    },
+    time: {
+      question: "What time?",
+      subtitle: "For {n} on {date}",
+    },
+    zone: {
+      question: "Where would you like to sit?",
+    },
+    contact: {
+      question: "Your details",
+      subtitle: "To confirm the reservation",
+    },
+    fields: {
+      name: "Name",
+      phone: "Phone",
+      email: "Email (optional)",
+      specialRequests: "Special request (optional)",
+    },
+    today: "Today",
+    tomorrow: "Tomorrow",
+    person: "person",
+    people: "people",
+    noSlots: {
+      title: "No times available",
+      description: "Try another date or a smaller party.",
+    },
+    zoneFull: {
+      title: "That area has no room at that time",
+      description: "Pick another area or go back and choose a different time.",
+    },
+    confirmReservation: "Confirm reservation",
+    confirming: "Confirming…",
+    confirmation: {
+      title: "Reservation confirmed!",
+      subtitle: "See you on {date} at {time}, for {n}.",
+    },
+  },
+  me: {
+    title: "Your reservations",
+    loginPrompt: "Enter your phone to see your reservations",
+    sendLink: "Email me the link",
+    sending: "Sending…",
+    linkSentTitle: "Check your email",
+    linkSentDescription: "We sent you a link to sign in. Valid for 15 minutes.",
+    invalidLink: "That link is no longer valid. Request a new one.",
   },
 } satisfies typeof es;

@@ -32,7 +32,7 @@ export default function RootLayout({
       className={`${fraunces.variable} ${archivo.variable} h-full antialiased`}
       suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col bg-background text-foreground font-text">
+      <body className="min-h-full min-w-0 flex flex-col bg-background text-foreground font-text">
         <Providers>{children}</Providers>
         <Toaster />
       </body>

@@ -38,3 +38,8 @@ export async function findOrCreateCustomer(
     return record;
   });
 }
+
+export async function getCustomerByPhone(db: typeof dbClient, phone: string) {
+  const [row] = await db.select().from(customer).where(eq(customer.phone, phone)).limit(1);
+  return row ?? null;
+}

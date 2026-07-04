@@ -64,10 +64,13 @@
   --muted: var(--neutral-100);
   --muted-foreground: var(--neutral-600);
 
+  /* --accent es el único token pensado para pisarse por tenant (restaurant.settings.accentColor).
+     Los derivados (subtle/ring) se calculan a partir de --accent con color-mix, no de --clay-*
+     directamente, para que un tenant que lo pisa se propague a todo lo que usa acento. */
   --accent: var(--clay-500);
   --accent-foreground: var(--neutral-50);
-  --accent-subtle: var(--clay-50);
-  --accent-subtle-foreground: var(--clay-700);
+  --accent-subtle: color-mix(in oklab, var(--accent) 12%, var(--neutral-0));
+  --accent-subtle-foreground: color-mix(in oklab, var(--accent) 65%, var(--neutral-900));
 
   --success: var(--success-500);
   --success-foreground: var(--neutral-50);
@@ -86,7 +89,7 @@
 
   --border: var(--neutral-200);
   --input: var(--neutral-200);
-  --ring: var(--clay-400);
+  --ring: var(--accent);
 
   --radius: 0.5rem;
 
@@ -115,8 +118,8 @@
 
   --accent: var(--clay-400);
   --accent-foreground: var(--neutral-950);
-  --accent-subtle: var(--clay-900);
-  --accent-subtle-foreground: var(--clay-200);
+  --accent-subtle: color-mix(in oklab, var(--accent) 20%, var(--neutral-950));
+  --accent-subtle-foreground: color-mix(in oklab, var(--accent) 70%, var(--neutral-50));
 
   --success: var(--success-500);
   --success-foreground: var(--neutral-50);
@@ -135,7 +138,7 @@
 
   --border: var(--neutral-800);
   --input: var(--neutral-800);
-  --ring: var(--clay-400);
+  --ring: var(--accent);
 
   --shadow-color: 20 30% 2%;
 }
