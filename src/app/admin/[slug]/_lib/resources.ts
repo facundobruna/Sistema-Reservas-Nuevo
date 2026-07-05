@@ -68,6 +68,16 @@ export const useUpdateCombo = () =>
   );
 export const useDeleteCombo = () => useDeleteResource("seating-units", "/admin/seating-units");
 
+async function fetchAllSeatingUnits(): Promise<{ seatingUnits: SeatingUnit[] }> {
+  const res = await fetch("/api/v1/admin/seating-units?all=true");
+  if (!res.ok) throw new Error("request_failed");
+  return res.json();
+}
+
+/** Todas las unidades (single + combo) — para el picker de "reasignar mesa" en la agenda. */
+export const useAllSeatingUnits = () =>
+  useQuery({ queryKey: ["seating-units", "all"], queryFn: fetchAllSeatingUnits });
+
 // --- Services ----------------------------------------------------------------
 
 export const useServices = () => useResourceList<{ services: Service[] }>("services", "/admin/services");
@@ -159,3 +169,116 @@ export const useUpdateSettings = () => {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }),
   });
 };
+
+// --- Reservations (agenda) -----------------------------------------------------
+
+export type AgendaReservation = {
+  id: string;
+  startsAt: string;
+  endsAt: string;
+  partySize: number;
+  status: ReservationStatus;
+  specialRequests: string | null;
+  source: "web" | "whatsapp" | "manual";
+  zoneId: string | null;
+  seatingUnitId: string | null;
+  customerId: string;
+  customerName: string | null;
+  customerPhone: string;
+};
+
+export type ReservationFilters = { date?: string; status?: ReservationStatus; zoneId?: string };
+
+async function fetchReservations(filters: ReservationFilters): Promise<{ reservations: AgendaReservation[] }> {
+  const params = new URLSearchParams();
+  if (filters.date) params.set("date", filters.date);
+  if (filters.status) params.set("status", filters.status);
+  if (filters.zoneId) params.set("zoneId", filters.zoneId);
+  const res = await fetch(`/api/v1/admin/reservations?${params.toString()}`);
+  if (!res.ok) throw new Error("request_failed");
+  return res.json();
+}
+
+export const useReservations = (filters: ReservationFilters) =>
+  useQuery({ queryKey: ["reservations", filters], queryFn: () => fetchReservations(filters) });
+
+export type ReservationCreateInput = {
+  startsAt: string;
+  partySize: number;
+  zoneId?: string;
+  specialRequests?: string;
+  seated?: boolean;
+  customer: { phone: string; name: string; email?: string };
+};
+
+async function postJson(path: string, method: "POST" | "PATCH", body: unknown) {
+  const res = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    throw new Error(errBody.error ?? "request_failed");
+  }
+  return res.json();
+}
+
+export const useCreateReservation = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ReservationCreateInput) => postJson("/api/v1/admin/reservations", "POST", input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["reservations"] }),
+  });
+};
+
+export type ReservationUpdateInput = {
+  id: string;
+  status?: ReservationStatus;
+  seatingUnitId?: string;
+  specialRequests?: string;
+};
+
+export const useUpdateReservation = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...input }: ReservationUpdateInput) =>
+      postJson(`/api/v1/admin/reservations/${id}`, "PATCH", input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["reservations"] }),
+  });
+};
+
+// --- Customers (mínimo) ---------------------------------------------------------
+
+export type AgendaCustomer = {
+  id: string;
+  name: string | null;
+  phone: string;
+  email: string | null;
+  noShowCount: number;
+  visitCount: number;
+};
+
+async function fetchCustomers(search: string): Promise<{ customers: AgendaCustomer[] }> {
+  const params = new URLSearchParams();
+  if (search) params.set("search", search);
+  const res = await fetch(`/api/v1/admin/customers?${params.toString()}`);
+  if (!res.ok) throw new Error("request_failed");
+  return res.json();
+}
+
+export const useCustomers = (search: string) =>
+  useQuery({ queryKey: ["customers", search], queryFn: () => fetchCustomers(search) });
+
+// --- Stats mínimo ------------------------------------------------------------
+
+export type Stats = { entradas: number; cumplidas: number; canceladas: number; no_show: number };
+
+async function fetchStats(from: string, to: string): Promise<{ from: string; to: string; stats: Stats }> {
+  const res = await fetch(`/api/v1/admin/stats?from=${from}&to=${to}`);
+  if (!res.ok) throw new Error("request_failed");
+  return res.json();
+}
+
+export const useStats = (from: string, to: string) =>
+  useQuery({ queryKey: ["stats", from, to], queryFn: () => fetchStats(from, to) });

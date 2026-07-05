@@ -48,7 +48,7 @@ export async function PATCH(request: Request, { params }: Params) {
   }
 
   if (parsed.data.status === "cancelled") {
-    const cancelled = await cancelReservation(db, id);
+    const cancelled = await cancelReservation(db, result.reservation.restaurantId, id);
     return NextResponse.json({ reservation: cancelled });
   }
 

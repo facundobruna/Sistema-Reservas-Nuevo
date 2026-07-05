@@ -49,7 +49,15 @@ El seed (`pnpm db:seed`, idempotente — se puede correr de nuevo sin duplicar d
 
 ## Panel del restaurante
 
-`/admin/{slug}/login` → panel en `/admin/{slug}` (zonas, mesas, combos, servicios, turnos, excepciones, configuración). El login es por restaurante (mismo patrón que `/r/{slug}` del comensal) porque el email de un staff solo es único dentro de su restaurante, no globalmente. La sesión es una cookie httpOnly firmada (HMAC, sin tabla de sesiones ni librería de auth). Roles `owner`/`manager` pueden editar configuración; `host` queda para operar la agenda (milestone posterior).
+`/admin/{slug}/login` → panel en `/admin/{slug}`. El login es por restaurante (mismo patrón que `/r/{slug}` del comensal) porque el email de un staff solo es único dentro de su restaurante, no globalmente. La sesión es una cookie httpOnly firmada (HMAC, sin tabla de sesiones ni librería de auth).
+
+La portada del panel es la **Agenda** (`/admin/{slug}`): lista de reservas del día con filtros por fecha/estado/zona, botones de cambio de estado (confirmar → sentar → completar, o cancelar/no-show desde cualquier estado anterior a completar), reasignación de mesa y carga manual de walk-ins/reservas telefónicas. El resto de la configuración (zonas, mesas, combos, servicios, turnos, excepciones) se movió a su propia sección de nav, separada de la operación diaria. Roles `owner`/`manager` pueden editar configuración; `host` opera la agenda.
+
+**Comensales** (`/admin/{slug}/customers`) — búsqueda de clientes por nombre/teléfono/email (con su histórico de visitas y no-shows) y exportación a CSV. **Analíticas** (`/admin/{slug}/stats`) — conteo mínimo de entradas/cumplidas/canceladas/no-show por rango de fechas; deliberadamente no es un BI ni reemplaza el sistema de gestión que ya tiene el restaurante.
+
+### Máquina de estados de una reserva
+
+`pending → confirmed → seated → completed`, con `cancelled`/`no_show` alcanzables desde cualquier estado anterior a `completed` (`src/lib/reservation/status-machine.ts`, transiciones inválidas se rechazan). Cancelar o marcar no-show libera la mesa al toque (borra las filas de `reservation_mesa`, la unidad vuelve a estar disponible); completar/no-show actualizan `visit_count`/`no_show_count` del cliente.
 
 ## Flujo de reserva del comensal
 
@@ -87,7 +95,9 @@ src/
   app/api/v1/
     auth/staff/        # login (scoped por slug) / logout
     admin/             # CRUD REST: zones, mesas, seating-units, services, shifts, exceptions, settings
-  app/admin/[slug]/    # Panel: login público + rutas protegidas (grupo (protected))
+                        # + reservations (agenda, walk-in, cambio de estado, reasignar mesa), customers (buscar + export CSV), stats
+  app/admin/[slug]/    # Panel: login público + rutas protegidas (grupo (protected)): agenda (portada), zones, mesas,
+                        # seating-units, services, shifts, exceptions, customers, stats, settings
   app/api/v1/r/[slug]/             # GET público (info) · availability/ · reservations/ (+[id])
   app/api/v1/auth/diner/            # magic-link (pedir) · verify (canjear)
   app/api/v1/me/reservations/       # Reservas del comensal logueado (todas las restaurantes)
@@ -96,6 +106,7 @@ src/
   lib/
     availability/    # computeAvailability + resolveSlot (puros, sin DB) + loadAvailabilityInput (glue con Postgres)
     reservation/     # bookReservation: único punto de escritura, transaccional, best-fit + retry de deadlocks
+                      # status-machine.ts: transiciones válidas de estado de una reserva
     email/           # Interfaz EmailSender (console-sender.ts local, resend-sender.ts prod)
     auth/            # signed-token.ts (HMAC compartido) · session.ts (staff) · diner-session.ts · magic-link.ts · require-staff.ts
     i18n/            # Copy ES/EN + interpolate() para templates con {variables}

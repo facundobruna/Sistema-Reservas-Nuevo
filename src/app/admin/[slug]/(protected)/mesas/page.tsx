@@ -187,7 +187,9 @@ export default function MesasPage() {
               <Label htmlFor="mesa-zone">Zona</Label>
               <Select value={form.zoneId} onValueChange={(v) => setForm((f) => ({ ...f, zoneId: v ?? f.zoneId }))}>
                 <SelectTrigger id="mesa-zone" className="w-full">
-                  <SelectValue placeholder="Elegí una zona" />
+                  <SelectValue placeholder="Elegí una zona">
+                    {zones.data?.zones.find((z) => z.id === form.zoneId)?.name}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {zones.data?.zones.map((zone) => (

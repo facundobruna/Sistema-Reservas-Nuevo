@@ -216,7 +216,9 @@ export default function ShiftsPage() {
                 <Label htmlFor="shift-service">Servicio</Label>
                 <Select value={form.serviceId} onValueChange={(v) => setForm((f) => ({ ...f, serviceId: v ?? f.serviceId }))}>
                   <SelectTrigger id="shift-service" className="w-full">
-                    <SelectValue placeholder="Servicio" />
+                    <SelectValue placeholder="Servicio">
+                      {services.data?.services.find((s) => s.id === form.serviceId)?.name}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {services.data?.services.map((s) => (
@@ -231,7 +233,9 @@ export default function ShiftsPage() {
                 <Label htmlFor="shift-zone">Zona</Label>
                 <Select value={form.zoneId} onValueChange={(v) => setForm((f) => ({ ...f, zoneId: v ?? f.zoneId }))}>
                   <SelectTrigger id="shift-zone" className="w-full">
-                    <SelectValue placeholder="Zona" />
+                    <SelectValue placeholder="Zona">
+                      {form.zoneId === NO_ZONE ? "Todas las zonas" : zones.data?.zones.find((z) => z.id === form.zoneId)?.name}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={NO_ZONE}>Todas las zonas</SelectItem>
@@ -249,7 +253,7 @@ export default function ShiftsPage() {
               <Label htmlFor="shift-day">Día de la semana</Label>
               <Select value={form.dayOfWeek} onValueChange={(v) => setForm((f) => ({ ...f, dayOfWeek: v ?? f.dayOfWeek }))}>
                 <SelectTrigger id="shift-day" className="w-full">
-                  <SelectValue placeholder="Día" />
+                  <SelectValue placeholder="Día">{DAY_LABELS[Number(form.dayOfWeek)]}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {DAY_LABELS.map((label, i) => (
@@ -291,7 +295,9 @@ export default function ShiftsPage() {
                 onValueChange={(v) => setForm((f) => ({ ...f, seatingMode: (v as "rolling" | "fixed") ?? f.seatingMode }))}
               >
                 <SelectTrigger id="shift-mode" className="w-full">
-                  <SelectValue />
+                  <SelectValue>
+                    {form.seatingMode === "rolling" ? "Rolling — horarios cada X minutos" : "Fixed — horarios fijos"}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="rolling">Rolling — horarios cada X minutos</SelectItem>

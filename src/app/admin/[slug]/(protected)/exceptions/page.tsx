@@ -193,7 +193,7 @@ export default function ExceptionsPage() {
               <Label htmlFor="exc-kind">Tipo</Label>
               <Select value={form.kind} onValueChange={(v) => setForm((f) => ({ ...f, kind: (v as typeof f.kind) ?? f.kind }))}>
                 <SelectTrigger id="exc-kind" className="w-full">
-                  <SelectValue />
+                  <SelectValue>{form.kind === "closed" ? "Cerrado todo el día" : "Horario especial"}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="closed">Cerrado todo el día</SelectItem>

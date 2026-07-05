@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { e164Phone } from "./phone";
 
 const timeString = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/, "Formato de hora inválido (HH:MM)");
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)");
@@ -144,4 +145,44 @@ export const settingsUpdateSchema = z.object({
     })
     .partial()
     .optional(),
+});
+
+// --- Reservations (agenda) -----------------------------------------------------
+
+export const reservationListQuerySchema = z.object({
+  date: dateString.optional(),
+  status: z.enum(["pending", "confirmed", "seated", "completed", "cancelled", "no_show"]).optional(),
+  zoneId: z.string().uuid().optional(),
+});
+
+export const reservationCreateSchema = z.object({
+  startsAt: z.string().datetime(),
+  partySize: z.number().int().min(1),
+  zoneId: z.string().uuid().optional(),
+  specialRequests: z.string().trim().max(500).optional(),
+  seated: z.boolean().optional(),
+  customer: z.object({
+    phone: e164Phone,
+    name: z.string().trim().min(1).max(120),
+    email: z.string().trim().email().optional(),
+  }),
+});
+
+export const reservationUpdateSchema = z.object({
+  status: z.enum(["pending", "confirmed", "seated", "completed", "cancelled", "no_show"]).optional(),
+  seatingUnitId: z.string().uuid().optional(),
+  specialRequests: z.string().trim().max(500).optional(),
+});
+
+// --- Customers (mínimo) ---------------------------------------------------------
+
+export const customerSearchQuerySchema = z.object({
+  search: z.string().trim().optional(),
+});
+
+// --- Stats mínimo ------------------------------------------------------------
+
+export const statsQuerySchema = z.object({
+  from: dateString,
+  to: dateString,
 });

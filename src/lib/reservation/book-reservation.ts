@@ -18,6 +18,8 @@ export type BookReservationParams = {
   startsAt: string;
   specialRequests?: string;
   source: "web" | "whatsapp" | "manual";
+  /** Default 'confirmed'. Lo usa el panel para sentar un walk-in directo, sin pasar por 'confirmed'. */
+  initialStatus?: "confirmed" | "seated";
 };
 
 export type BookReservationResult =
@@ -65,7 +67,7 @@ async function attemptUnit(
             startsAt: startsAtDate,
             endsAt: endsAtDate,
             partySize: params.partySize,
-            status: "confirmed",
+            status: params.initialStatus ?? "confirmed",
             specialRequests: params.specialRequests,
             source: params.source,
           })

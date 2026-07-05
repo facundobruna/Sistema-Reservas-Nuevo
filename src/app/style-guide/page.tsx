@@ -99,6 +99,7 @@ const STATUS_BADGE_VARIANT = {
 
 export default function StyleGuidePage() {
   const [locale, setLocale] = useState<Locale>("es");
+  const [styleGuideZone, setStyleGuideZone] = useState("salon");
   const dict = getDictionary(locale);
 
   return (
@@ -251,9 +252,11 @@ export default function StyleGuidePage() {
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="sg-zone">Zona</Label>
-                    <Select defaultValue="salon">
+                    <Select value={styleGuideZone} onValueChange={(v) => setStyleGuideZone(v ?? styleGuideZone)}>
                       <SelectTrigger id="sg-zone" className="w-full">
-                        <SelectValue placeholder="Elegí una zona" />
+                        <SelectValue placeholder="Elegí una zona">
+                          {styleGuideZone === "salon" ? "Salón principal" : "Terraza"}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="salon">Salón principal</SelectItem>
