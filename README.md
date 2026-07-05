@@ -32,9 +32,12 @@ pnpm db:seed
 
 # 6. Levantar la app
 pnpm dev
+
+# 7. (Opcional) Levantar el worker de notificaciones, en otra terminal
+pnpm worker
 ```
 
-La app queda en [http://localhost:3000](http://localhost:3000).
+La app queda en [http://localhost:3000](http://localhost:3000). Sin el worker corriendo, las reservas se siguen creando normalmente — simplemente no salen los emails de confirmación/recordatorio hasta que lo levantes (quedan agendados en `notification`, esperando).
 
 ## Restaurante de demo
 
@@ -73,6 +76,14 @@ La portada del panel es la **Agenda** (`/admin/{slug}`): lista de reservas del d
 
 Login opcional por magic link (`/me`, pedís por teléfono, te llega un link por email — en local se ve por consola) para volver a ver tus reservas desde otro dispositivo. No agrega pasos al flujo de reservar.
 
+## Notificaciones (confirmación + recordatorio por email)
+
+Al confirmarse una reserva (web, o manual desde el panel cuando no es un walk-in ya sentado) se agendan dos filas en `notification`: una confirmación inmediata y un recordatorio `reminderHoursBefore` horas antes (configurable en Configuración, default 3). El envío real lo hace `pnpm worker` (`src/jobs/worker.ts`), un proceso aparte sobre pg-boss (misma base de Postgres, sin Redis ni broker extra) que cada 1 minuto busca notificaciones vencidas y las manda con el `EmailSender` que ya existía (consola en local, Resend en prod).
+
+- Si el envío falla, reintenta en las siguientes corridas hasta 5 veces y después queda `failed` — no reintenta para siempre.
+- Si la reserva no tiene email cargado (es opcional para el comensal), la notificación se marca `failed` directo, sin intentarlo.
+- Cancelar una reserva o marcarla `no_show` borra sus notificaciones `scheduled` pendientes — no le llega un recordatorio a algo que ya no va a pasar.
+
 ## Scripts
 
 | Comando | Qué hace |
@@ -85,6 +96,7 @@ Login opcional por magic link (`/me`, pedís por teléfono, te llega un link por
 | `pnpm db:migrate` | Aplica las migraciones pendientes contra `DATABASE_URL` |
 | `pnpm db:seed` | Siembra el restaurante de demo (borra y recrea el que tenga slug `demo`) |
 | `pnpm db:studio` | Abre Drizzle Studio para explorar la base |
+| `pnpm worker` | Levanta el worker de notificaciones (confirmación + recordatorio por email) |
 
 ## Estructura
 
@@ -122,7 +134,8 @@ src/
     auth/            # signed-token.ts (HMAC compartido) · session.ts (staff) · diner-session.ts · magic-link.ts · require-staff.ts
     i18n/            # Copy ES/EN + interpolate() para templates con {variables}
     validation/      # Schemas zod compartidos (admin.ts, auth.ts, booking.ts, phone.ts, onboarding.ts)
-  jobs/             # Workers pg-boss (confirmación + recordatorio)
+  jobs/
+    worker.ts        # Proceso pg-boss aparte (`pnpm worker`): manda confirmación/recordatorio por email
 tests/
   unit/             # Motor de disponibilidad (lógica pura) — los 7 casos obligatorios de la spec + resolveSlot
   integration/      # bookReservation bajo concurrencia real contra Postgres
@@ -141,4 +154,5 @@ docker-compose.yml   # Postgres 17 local
 - **Motor de disponibilidad:** `computeAvailability` es una función pura (sin DB, en `src/lib/availability/compute-availability.ts`), testeada con Vitest. Opera sobre instantes absolutos (UTC) calculados en el timezone del restaurante vía Luxon; el `periodo` semiabierto se respeta también acá (dos turnos que se tocan en el borde no se consideran solapados). `GET /api/v1/r/{slug}/availability?date=&partySize=&zoneId=` arma el input desde Postgres (`loadAvailabilityInput`) y llama a la función pura — la separación es deliberada para que la lógica de negocio se pueda testear sin base de datos.
 - **Reserva sin doble-booking bajo concurrencia:** `bookReservation` revalida el horario server-side (nunca confía en lo que mandó el cliente) vía `resolveSlot`, y prueba las unidades candidatas en orden best-fit, una transacción por intento. Bajo carga real, Postgres puede resolver dos transacciones que compiten por la misma mesa de dos formas: una viola limpio el `EXCLUDE` (`23P01`, la unidad está tomada) o el detector de deadlocks aborta una de las dos (`40P01`, no dice nada sobre disponibilidad) — `bookReservation` reintenta ante lo segundo y solo pasa a la siguiente unidad ante lo primero. El test de integración de concurrencia lo ejercita de verdad contra Postgres y fue el que hizo aparecer el caso del deadlock.
 - **Reservas confirman al toque:** no hay paso de aprobación manual en ningún punto de la spec — `bookReservation` crea la reserva en estado `confirmed` directamente (no `pending`), consistente con la promesa de cero fricción.
+- **Notificaciones:** `notification` es la fuente de verdad (`scheduled → sent/failed`, con `attempts` para acotar reintentos); el worker de pg-boss es "solo" el proceso que la vacía cada 1 minuto, no dueño del estado. Esto mantiene la lógica de negocio (cuándo cancelar un recordatorio, cuándo agendar uno nuevo) en el mismo lugar que el resto del dominio (`src/db/`), no dispersa en callbacks de la cola.
 - **Branding por tenant:** `restaurant.settings.accentColor` pisa el acento en `/r/{slug}` (ver `src/app/r/[slug]/page.tsx`). Los tokens derivados del acento (`--accent-subtle`, `--ring`, etc.) usan `color-mix()` — y como `color-mix()` se resuelve en el punto donde CADA custom property se declara (no se "recalcula en cascada" al pisar solo `--accent` en un elemento anidado), hay que redeclarar todos los derivados juntos con el color literal del tenant, no alcanza con pisar `--accent` sola.

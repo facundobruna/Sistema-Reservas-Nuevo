@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { db as dbClient } from "./client";
-import { customerRestaurant, mesa, reservation, reservationMesa, seatingUnit, seatingUnitMesa } from "./schema";
+import { customerRestaurant, mesa, notification, reservation, reservationMesa, seatingUnit, seatingUnitMesa } from "./schema";
 import { canTransition, type ReservationStatus } from "@/lib/reservation/status-machine";
 
 export type UpdateStatusResult =
@@ -32,6 +32,10 @@ export async function updateReservationStatus(
 
     if (newStatus === "cancelled" || newStatus === "no_show") {
       await trx.delete(reservationMesa).where(eq(reservationMesa.reservationId, reservationId));
+      // No mandar confirmación/recordatorio de una reserva que ya no va a pasar.
+      await trx
+        .delete(notification)
+        .where(and(eq(notification.reservationId, reservationId), eq(notification.status, "scheduled")));
     }
 
     const [updated] = await trx

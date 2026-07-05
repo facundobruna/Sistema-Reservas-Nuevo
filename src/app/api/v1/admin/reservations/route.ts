@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db/client";
 import { customer, reservation, restaurant } from "@/db/schema";
 import { findOrCreateCustomer } from "@/db/customer";
+import { scheduleReservationNotifications } from "@/db/notification";
 import { requireStaffSession } from "@/lib/auth/require-staff";
 import { bookReservation } from "@/lib/reservation/book-reservation";
 import { reservationCreateSchema, reservationListQuerySchema } from "@/lib/validation/admin";
@@ -97,6 +98,17 @@ export async function POST(request: Request) {
 
   if (!result.ok) {
     return NextResponse.json({ error: "slot_unavailable" }, { status: 409 });
+  }
+
+  // Un walk-in que ya está sentado no necesita confirmación ni recordatorio;
+  // una reserva manual para más tarde sí, igual que si la hiciera el comensal.
+  if (!seated) {
+    const settings = restaurantRow.settings as { reminderHoursBefore?: number };
+    await scheduleReservationNotifications(db, {
+      reservationId: result.reservation.id,
+      startsAt: result.reservation.startsAt.toISOString(),
+      reminderHoursBefore: settings.reminderHoursBefore ?? 3,
+    });
   }
 
   return NextResponse.json({ reservation: result.reservation }, { status: 201 });

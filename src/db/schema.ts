@@ -316,6 +316,7 @@ export const notification = pgTable(
     status: notificationStatusEnum("status").notNull().default("scheduled"),
     scheduledFor: timestamp("scheduled_for", { withTimezone: true }).notNull(),
     sentAt: timestamp("sent_at", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
