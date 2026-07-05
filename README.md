@@ -47,6 +47,10 @@ El seed (`pnpm db:seed`, idempotente — se puede correr de nuevo sin duplicar d
 - **Excepción:** un cierre de ejemplo (evento privado)
 - **Staff:** un usuario `owner` — login en `/admin/demo/login` con `owner@fuegonorte.demo` / `demo1234`
 
+## Alta de un restaurante nuevo (self-serve)
+
+`/onboarding` — wizard público de 3 pasos (restaurante + link/timezone → cuenta del owner → turnos típicos de almuerzo/cena). Al confirmar crea el restaurante, una zona "Salón principal", los turnos elegidos (abiertos los 7 días, editables después) y el owner, todo en una transacción; abre sesión automáticamente y redirige directo a "Compartí tu reserva". Deliberadamente **no** pide mesas en el alta (para que sea rápida) — el panel avisa en la Agenda si todavía no hay ninguna cargada, porque sin mesas el motor no tiene nada que ofrecer.
+
 ## Panel del restaurante
 
 `/admin/{slug}/login` → panel en `/admin/{slug}`. El login es por restaurante (mismo patrón que `/r/{slug}` del comensal) porque el email de un staff solo es único dentro de su restaurante, no globalmente. La sesión es una cookie httpOnly firmada (HMAC, sin tabla de sesiones ni librería de auth).
@@ -58,6 +62,10 @@ La portada del panel es la **Agenda** (`/admin/{slug}`): lista de reservas del d
 ### Máquina de estados de una reserva
 
 `pending → confirmed → seated → completed`, con `cancelled`/`no_show` alcanzables desde cualquier estado anterior a `completed` (`src/lib/reservation/status-machine.ts`, transiciones inválidas se rechazan). Cancelar o marcar no-show libera la mesa al toque (borra las filas de `reservation_mesa`, la unidad vuelve a estar disponible); completar/no-show actualizan `visit_count`/`no_show_count` del cliente.
+
+### Compartí tu reserva
+
+`/admin/{slug}/share` — todo lo necesario para distribuir el link, calculado en el cliente a partir del restaurante (sin backend propio): el link branded `/r/{slug}` copiable, un texto de WhatsApp con el link ya interpolado (para pegar como respuesta automática en WhatsApp Business, más un botón que abre `wa.me` con el mensaje precargado — **no** se integra la Cloud API de Meta ni se arma un bot), un código QR descargable como PNG (generado 100% local con la librería `qrcode`, sin servicios externos) y un snippet de botón embebible (HTML/CSS autocontenido, con el acento del tenant) para pegar en la web propia del restaurante.
 
 ## Flujo de reserva del comensal
 
@@ -92,12 +100,15 @@ src/
     mesa.ts            # createMesa/updateMesa/deleteMesa: mantienen su seating_unit 'single' en sincro
     seating-unit.ts   # createCombo/updateCombo: seating_unit 'combo' + sus mesas enlazadas
     restaurant.ts     # getRestaurantBySlug
+    onboarding.ts     # createRestaurantOnboarding: alta self-serve (restaurant + zona + turnos + owner) en una transacción
   app/api/v1/
     auth/staff/        # login (scoped por slug) / logout
     admin/             # CRUD REST: zones, mesas, seating-units, services, shifts, exceptions, settings
                         # + reservations (agenda, walk-in, cambio de estado, reasignar mesa), customers (buscar + export CSV), stats
-  app/admin/[slug]/    # Panel: login público + rutas protegidas (grupo (protected)): agenda (portada), zones, mesas,
+    onboarding/        # POST público: alta self-serve de restaurante + owner, abre sesión
+  app/admin/[slug]/    # Panel: login público + rutas protegidas (grupo (protected)): agenda (portada), share, zones, mesas,
                         # seating-units, services, shifts, exceptions, customers, stats, settings
+  app/onboarding/      # Wizard público de alta de restaurante (3 pasos)
   app/api/v1/r/[slug]/             # GET público (info) · availability/ · reservations/ (+[id])
   app/api/v1/auth/diner/            # magic-link (pedir) · verify (canjear)
   app/api/v1/me/reservations/       # Reservas del comensal logueado (todas las restaurantes)
@@ -110,7 +121,7 @@ src/
     email/           # Interfaz EmailSender (console-sender.ts local, resend-sender.ts prod)
     auth/            # signed-token.ts (HMAC compartido) · session.ts (staff) · diner-session.ts · magic-link.ts · require-staff.ts
     i18n/            # Copy ES/EN + interpolate() para templates con {variables}
-    validation/      # Schemas zod compartidos (admin.ts, auth.ts, booking.ts, phone.ts)
+    validation/      # Schemas zod compartidos (admin.ts, auth.ts, booking.ts, phone.ts, onboarding.ts)
   jobs/             # Workers pg-boss (confirmación + recordatorio)
 tests/
   unit/             # Motor de disponibilidad (lógica pura) — los 7 casos obligatorios de la spec + resolveSlot

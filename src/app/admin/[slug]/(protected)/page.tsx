@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
 import { DateTime } from "luxon";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -21,6 +23,7 @@ import { ErrorState } from "@/components/error-state";
 import { WalkInDialog } from "../_components/walk-in-dialog";
 import {
   useAllSeatingUnits,
+  useMesas,
   useReservations,
   useSettings,
   useUpdateReservation,
@@ -72,6 +75,7 @@ const ALL_STATUS = "__all__";
 const ANY_ZONE = "__any__";
 
 export default function AgendaPage() {
+  const { slug } = useParams<{ slug: string }>();
   const [date, setDate] = useState(() => DateTime.now().toISODate()!);
   const [status, setStatus] = useState<string>(ALL_STATUS);
   const [zoneId, setZoneId] = useState<string>(ANY_ZONE);
@@ -80,6 +84,7 @@ export default function AgendaPage() {
 
   const settings = useSettings();
   const zones = useZones();
+  const mesas = useMesas();
   const reservations = useReservations({
     date,
     status: status === ALL_STATUS ? undefined : (status as ReservationStatus),
@@ -112,6 +117,16 @@ export default function AgendaPage() {
           Nueva reserva
         </Button>
       </div>
+
+      {mesas.data && mesas.data.mesas.length === 0 ? (
+        <div className="rounded-lg border border-warning bg-warning-subtle px-4 py-3 text-sm text-warning-subtle-foreground">
+          Todavía no cargaste mesas — sin mesas no hay horarios para ofrecer.{" "}
+          <Link href={`/admin/${slug}/mesas`} className="font-medium underline underline-offset-2">
+            Agregalas en Configuración → Mesas
+          </Link>
+          .
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
         <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-auto" />

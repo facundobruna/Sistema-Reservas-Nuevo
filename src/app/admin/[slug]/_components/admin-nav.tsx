@@ -10,6 +10,7 @@ import {
   LayoutGrid,
   MapPinned,
   Settings,
+  Share2,
   Table2,
   Users,
   UtensilsCrossed,
@@ -18,6 +19,7 @@ import { cn } from "@/lib/utils";
 
 const OPERATION_ITEMS = [
   { href: "", label: "Agenda", icon: CalendarCheck },
+  { href: "/share", label: "Compartir", icon: Share2 },
   { href: "/customers", label: "Comensales", icon: Users },
   { href: "/stats", label: "Analíticas", icon: BarChart3 },
 ];
