@@ -1,8 +1,10 @@
+import { DateTime } from "luxon";
 import { NextResponse } from "next/server";
 import { db } from "@/db/client";
 import { getRestaurantBySlug } from "@/db/restaurant";
 import { findOrCreateCustomer } from "@/db/customer";
 import { scheduleReservationNotifications } from "@/db/notification";
+import { markWaitlistBooked } from "@/db/waitlist";
 import { createDinerSession } from "@/lib/auth/diner-session";
 import { bookReservation } from "@/lib/reservation/book-reservation";
 import { createReservationSchema } from "@/lib/validation/booking";
@@ -44,6 +46,13 @@ export async function POST(request: Request, { params }: Params) {
     reservationId: result.reservation.id,
     startsAt: result.reservation.startsAt.toISOString(),
     reminderHoursBefore: settings.reminderHoursBefore ?? 3,
+  });
+
+  // Si estaba anotado en lista de espera para este día, ya consiguió mesa por su cuenta.
+  await markWaitlistBooked(db, {
+    restaurantId: restaurant.id,
+    customerId: customerRecord.id,
+    date: DateTime.fromJSDate(result.reservation.startsAt).setZone(restaurant.timezone).toISODate()!,
   });
 
   await createDinerSession(customerRecord.id);

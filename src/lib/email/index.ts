@@ -21,4 +21,4 @@ export function getEmailSender(): EmailSender {
   return cached;
 }
 
-export type { EmailSender, SendEmailParams } from "./types";
+export type { EmailAttachment, EmailSender, SendEmailParams } from "./types";

@@ -56,6 +56,7 @@ export const reservationSourceEnum = pgEnum("reservation_source", ["web", "whats
 export const notificationTypeEnum = pgEnum("notification_type", ["confirmation", "reminder"]);
 export const notificationChannelEnum = pgEnum("notification_channel", ["email", "whatsapp"]);
 export const notificationStatusEnum = pgEnum("notification_status", ["scheduled", "sent", "failed"]);
+export const waitlistStatusEnum = pgEnum("waitlist_status", ["waiting", "notified", "booked", "expired"]);
 
 // ---------------------------------------------------------------------------
 // Tables
@@ -324,5 +325,33 @@ export const notification = pgTable(
     index("notification_scheduled_for_scheduled_idx")
       .on(table.scheduledFor)
       .where(sql`${table.status} = 'scheduled'`),
+  ],
+);
+
+// Lista de espera: cuando no hay horarios para una fecha/cantidad, el
+// comensal se anota acá. El worker (src/jobs/worker.ts) revisa las entradas
+// 'waiting' y avisa por email si aparece disponibilidad — no reserva nada
+// por su cuenta, el motor de bookReservation sigue siendo el único árbitro.
+export const waitlistEntry = pgTable(
+  "waitlist_entry",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    restaurantId: uuid("restaurant_id")
+      .notNull()
+      .references(() => restaurant.id, { onDelete: "cascade" }),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customer.id, { onDelete: "cascade" }),
+    date: date("date").notNull(),
+    partySize: integer("party_size").notNull(),
+    zoneId: uuid("zone_id").references(() => zone.id, { onDelete: "cascade" }),
+    status: waitlistStatusEnum("status").notNull().default("waiting"),
+    notifiedAt: timestamp("notified_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("waitlist_entry_restaurant_id_date_idx").on(table.restaurantId, table.date),
+    index("waitlist_entry_status_idx").on(table.status),
+    check("waitlist_entry_party_size_check", sql`${table.partySize} > 0`),
   ],
 );

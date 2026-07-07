@@ -20,6 +20,7 @@ export async function GET() {
       specialRequests: reservation.specialRequests,
       restaurantName: restaurant.name,
       restaurantSlug: restaurant.slug,
+      restaurantTimezone: restaurant.timezone,
     })
     .from(reservation)
     .innerJoin(restaurant, eq(restaurant.id, reservation.restaurantId))

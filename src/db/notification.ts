@@ -40,7 +40,9 @@ export type DueNotification = {
   id: string;
   type: "confirmation" | "reminder";
   attempts: number;
+  reservationId: string;
   startsAt: Date;
+  endsAt: Date;
   partySize: number;
   customerName: string | null;
   customerEmail: string | null;
@@ -55,7 +57,9 @@ export async function findDueNotifications(db: typeof dbClient, limit = 20): Pro
       id: notification.id,
       type: notification.type,
       attempts: notification.attempts,
+      reservationId: reservation.id,
       startsAt: reservation.startsAt,
+      endsAt: reservation.endsAt,
       partySize: reservation.partySize,
       customerName: customer.name,
       customerEmail: customer.email,

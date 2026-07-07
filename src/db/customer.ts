@@ -21,14 +21,21 @@ export async function findOrCreateCustomer(
   return db.transaction(async (trx) => {
     const [existing] = await trx.select().from(customer).where(eq(customer.phone, input.phone)).limit(1);
 
-    const record =
-      existing ??
-      (
-        await trx
-          .insert(customer)
-          .values({ phone: input.phone, name: input.name, email: input.email })
-          .returning()
-      )[0];
+    let record = existing;
+    if (!record) {
+      [record] = await trx
+        .insert(customer)
+        .values({ phone: input.phone, name: input.name, email: input.email })
+        .returning();
+    } else if ((!record.email && input.email) || (!record.name && input.name)) {
+      // Completa datos que faltaban (ej. reservó una vez sin email y ahora sí lo dio) —
+      // nunca pisa un valor que ya tenía.
+      [record] = await trx
+        .update(customer)
+        .set({ email: record.email ?? input.email, name: record.name ?? input.name })
+        .where(eq(customer.id, record.id))
+        .returning();
+    }
 
     await trx
       .insert(customerRestaurant)

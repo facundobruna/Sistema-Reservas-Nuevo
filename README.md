@@ -74,7 +74,9 @@ La portada del panel es la **Agenda** (`/admin/{slug}`): lista de reservas del d
 
 `/r/{slug}` — wizard de 5-6 pasos (comensales → fecha → horario → zona *solo si hay más de una* → datos → confirmación), con todo el estado en la URL para que atrás/refresh/compartir el link funcionen. Sin login obligatorio: el comensal se linkea/crea por teléfono en el momento de reservar. Conteo de toques medido y documentado en [docs/friction.md](./docs/friction.md) — es un presupuesto, no crece sin discutirlo.
 
-Login opcional por magic link (`/me`, pedís por teléfono, te llega un link por email — en local se ve por consola) para volver a ver tus reservas desde otro dispositivo. No agrega pasos al flujo de reservar.
+Login opcional por magic link (`/me`, pedís por teléfono, te llega un link por email — en local se ve por consola) para volver a ver tus reservas desde otro dispositivo. No agrega pasos al flujo de reservar. Desde ahí también se puede **cancelar** o **modificar** (comensales/fecha/hora) cualquier reserva confirmada que todavía no pasó.
+
+Si no hay horarios para la fecha/cantidad pedida, el wizard ofrece **anotarse en lista de espera** (con email, a diferencia del resto del flujo donde es opcional — es el único canal por el que se avisa). El worker de notificaciones revisa las entradas cada 1 minuto y, si aparece disponibilidad real para lo que alguien esperaba, le manda un email con el link para reservar — nadie reserva un lugar por otro, gana quien haga clic primero (el motor ya es seguro bajo concurrencia).
 
 ## Notificaciones (confirmación + recordatorio por email)
 
@@ -83,6 +85,15 @@ Al confirmarse una reserva (web, o manual desde el panel cuando no es un walk-in
 - Si el envío falla, reintenta en las siguientes corridas hasta 5 veces y después queda `failed` — no reintenta para siempre.
 - Si la reserva no tiene email cargado (es opcional para el comensal), la notificación se marca `failed` directo, sin intentarlo.
 - Cancelar una reserva o marcarla `no_show` borra sus notificaciones `scheduled` pendientes — no le llega un recordatorio a algo que ya no va a pasar.
+- La confirmación lleva un adjunto `.ics` (generado a mano, sin librería) para agregar la reserva al calendario; el recordatorio no lo repite.
+
+### Modificar una reserva (comensal)
+
+`PATCH /api/v1/r/{slug}/reservations/{id}` con `startsAt`/`partySize` intenta reservar el horario nuevo primero (revalida disponibilidad de verdad vía `bookReservation`) y solo si sale bien cancela la reserva vieja — así una modificación que falla nunca hace perder una reserva confirmada. La nueva reserva pasa por el mismo camino que cualquier reserva (notificaciones + `.ics` incluidos).
+
+### Lista de espera
+
+`waitlist_entry` (`waiting → notified → booked/expired`) vive scoped por restaurante+fecha+comensales. El worker, en la misma corrida de cada minuto, revisa las entradas `waiting`, corre `computeAvailability` para cada una y avisa por email si ahora hay lugar. Si el comensal termina reservando por su cuenta ese día, la entrada se marca `booked`; si la fecha pasó sin que nadie reservara, se marca `expired`.
 
 ## Scripts
 
@@ -113,6 +124,8 @@ src/
     seating-unit.ts   # createCombo/updateCombo: seating_unit 'combo' + sus mesas enlazadas
     restaurant.ts     # getRestaurantBySlug
     onboarding.ts     # createRestaurantOnboarding: alta self-serve (restaurant + zona + turnos + owner) en una transacción
+    notification.ts   # scheduleReservationNotifications + findDue/markSent/markSkipped/recordFailure
+    waitlist.ts        # joinWaitlist (idempotente) + findActiveWaitingEntries/markNotified/markBooked/expirePast
   app/api/v1/
     auth/staff/        # login (scoped por slug) / logout
     admin/             # CRUD REST: zones, mesas, seating-units, services, shifts, exceptions, settings
@@ -121,21 +134,22 @@ src/
   app/admin/[slug]/    # Panel: login público + rutas protegidas (grupo (protected)): agenda (portada), share, zones, mesas,
                         # seating-units, services, shifts, exceptions, customers, stats, settings
   app/onboarding/      # Wizard público de alta de restaurante (3 pasos)
-  app/api/v1/r/[slug]/             # GET público (info) · availability/ · reservations/ (+[id])
+  app/api/v1/r/[slug]/             # GET público (info) · availability/ · reservations/ (+[id], modificar/cancelar) · waitlist/
   app/api/v1/auth/diner/            # magic-link (pedir) · verify (canjear)
   app/api/v1/me/reservations/       # Reservas del comensal logueado (todas las restaurantes)
-  app/r/[slug]/                    # Wizard de reserva (el flujo del comensal)
-  app/me/                          # Página mínima: login por magic link + lista de reservas
+  app/r/[slug]/                    # Wizard de reserva (el flujo del comensal) + CTA de lista de espera si no hay horarios
+  app/me/                          # Login por magic link + lista de reservas, con cancelar/modificar inline
   lib/
     availability/    # computeAvailability + resolveSlot (puros, sin DB) + loadAvailabilityInput (glue con Postgres)
     reservation/     # bookReservation: único punto de escritura, transaccional, best-fit + retry de deadlocks
                       # status-machine.ts: transiciones válidas de estado de una reserva
-    email/           # Interfaz EmailSender (console-sender.ts local, resend-sender.ts prod)
+                      # notification-email.ts / ics.ts: contenido de los emails y el adjunto .ics
+    email/           # Interfaz EmailSender (attachments incluidos; console-sender.ts local, resend-sender.ts prod)
     auth/            # signed-token.ts (HMAC compartido) · session.ts (staff) · diner-session.ts · magic-link.ts · require-staff.ts
     i18n/            # Copy ES/EN + interpolate() para templates con {variables}
     validation/      # Schemas zod compartidos (admin.ts, auth.ts, booking.ts, phone.ts, onboarding.ts)
   jobs/
-    worker.ts        # Proceso pg-boss aparte (`pnpm worker`): manda confirmación/recordatorio por email
+    worker.ts        # Proceso pg-boss aparte (`pnpm worker`): manda confirmación/recordatorio por email + revisa la lista de espera
 tests/
   unit/             # Motor de disponibilidad (lógica pura) — los 7 casos obligatorios de la spec + resolveSlot
   integration/      # bookReservation bajo concurrencia real contra Postgres

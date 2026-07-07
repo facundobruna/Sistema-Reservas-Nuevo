@@ -3,8 +3,6 @@
 import { Suspense, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { DateTime } from "luxon";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,15 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { getDictionary, defaultLocale } from "@/lib/i18n";
-
-type MeReservation = {
-  id: string;
-  startsAt: string;
-  partySize: number;
-  status: string;
-  restaurantName: string;
-  restaurantSlug: string;
-};
+import { ReservationItem, type MeReservation } from "./_components/reservation-item";
 
 async function fetchMyReservations(): Promise<{ reservations: MeReservation[] }> {
   const res = await fetch("/api/v1/me/reservations");
@@ -28,15 +18,6 @@ async function fetchMyReservations(): Promise<{ reservations: MeReservation[] }>
   if (!res.ok) throw new Error("request_failed");
   return res.json();
 }
-
-const STATUS_BADGE_VARIANT: Record<string, "warning" | "accent" | "secondary" | "success" | "destructive"> = {
-  pending: "warning",
-  confirmed: "accent",
-  seated: "secondary",
-  completed: "success",
-  cancelled: "destructive",
-  no_show: "destructive",
-};
 
 export default function MePage() {
   return (
@@ -72,27 +53,11 @@ function MePageContent() {
         <EmptyState title={dict.emptyStates.noReservations.title} description={dict.emptyStates.noReservations.description} />
       ) : (
         <ul className="space-y-3">
-          {data.reservations.map((r) => {
-            const local = DateTime.fromISO(r.startsAt);
-            return (
-              <li key={r.id}>
-                <Card>
-                  <CardContent className="flex items-center justify-between pt-6">
-                    <div>
-                      <p className="font-display text-base text-foreground">{r.restaurantName}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {local.toFormat("dd/LL/yyyy")} · {local.toFormat("HH:mm")} · {r.partySize}{" "}
-                        {r.partySize === 1 ? dict.booking.person : dict.booking.people}
-                      </p>
-                    </div>
-                    <Badge variant={STATUS_BADGE_VARIANT[r.status] ?? "outline"}>
-                      {dict.reservationStatus[r.status as keyof typeof dict.reservationStatus] ?? r.status}
-                    </Badge>
-                  </CardContent>
-                </Card>
-              </li>
-            );
-          })}
+          {data.reservations.map((r) => (
+            <li key={r.id}>
+              <ReservationItem reservation={r} />
+            </li>
+          ))}
         </ul>
       )}
     </div>
