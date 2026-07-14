@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { getDictionary, interpolate, type Locale } from "@/lib/i18n";
+import { normalizeArPhone } from "@/lib/validation/phone";
 import { OptionChip } from "./option-chip";
 import { StepHeader, StepProgress, StepShell } from "./step-header";
 
@@ -160,7 +161,7 @@ function NoSlots({
     setLoading(true);
     setError(false);
     try {
-      await joinWaitlist(slug, { date, partySize, customer: { phone, name, email } });
+      await joinWaitlist(slug, { date, partySize, customer: { phone: normalizeArPhone(phone), name, email } });
       setJoined(true);
     } catch {
       setError(true);
@@ -188,9 +189,10 @@ function NoSlots({
           <Input
             id="waitlist-phone"
             type="tel"
-            placeholder="+5491122223333"
+            placeholder="11 2222-3333"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
+            onBlur={(e) => setPhone(normalizeArPhone(e.target.value))}
             required
           />
         </div>

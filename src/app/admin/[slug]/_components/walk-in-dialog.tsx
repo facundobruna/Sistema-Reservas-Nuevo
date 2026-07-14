@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { normalizeArPhone } from "@/lib/validation/phone";
 import { useCreateReservation, useZones } from "../_lib/resources";
 
 const NO_ZONE = "__any__";
@@ -60,7 +61,7 @@ export function WalkInDialog({ open, onOpenChange, timezone }: { open: boolean; 
         partySize: Number(partySize),
         zoneId: zoneId === NO_ZONE ? undefined : zoneId,
         seated,
-        customer: { phone, name },
+        customer: { phone: normalizeArPhone(phone), name },
       },
       {
         onSuccess: () => {
@@ -138,9 +139,10 @@ export function WalkInDialog({ open, onOpenChange, timezone }: { open: boolean; 
             <Input
               id="walkin-phone"
               type="tel"
-              placeholder="+5491122223333"
+              placeholder="11 2222-3333"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
+              onBlur={(e) => setPhone(normalizeArPhone(e.target.value))}
               required
             />
           </div>

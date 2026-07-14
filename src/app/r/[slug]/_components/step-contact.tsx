@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { getDictionary, interpolate, type Locale } from "@/lib/i18n";
+import { normalizeArPhone } from "@/lib/validation/phone";
 import { StepHeader, StepProgress, StepShell } from "./step-header";
 
 type SubmitError = { kind: "slot_unavailable"; hadZone: boolean } | { kind: "generic" };
@@ -46,6 +47,8 @@ export function StepContact({
     setLoading(true);
     setError(null);
 
+    const normalizedPhone = normalizeArPhone(phone);
+
     const res = await fetch(`/api/v1/r/${slug}/reservations`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -54,7 +57,7 @@ export function StepContact({
         partySize,
         zoneId: zoneId ?? undefined,
         specialRequests: specialRequests || undefined,
-        customer: { name, phone, email: email || undefined },
+        customer: { name, phone: normalizedPhone, email: email || undefined },
       }),
     });
 
@@ -113,9 +116,10 @@ export function StepContact({
           <Input
             id="contact-phone"
             type="tel"
-            placeholder="+5491122223333"
+            placeholder="11 2222-3333"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
+            onBlur={(e) => setPhone(normalizeArPhone(e.target.value))}
             required
           />
         </div>

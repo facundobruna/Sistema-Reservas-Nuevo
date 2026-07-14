@@ -35,9 +35,11 @@ export function OnboardingWizard() {
   const [slug, setSlug] = useState("");
   const [timezone, setTimezone] = useState("America/Argentina/Buenos_Aires");
 
-  const [ownerName, setOwnerName] = useState("");
+  const [ownerFirstName, setOwnerFirstName] = useState("");
+  const [ownerLastName, setOwnerLastName] = useState("");
   const [ownerEmail, setOwnerEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordConfirm, setPasswordConfirm] = useState("");
 
   const [lunch, setLunch] = useState<ShiftConfig>({ enabled: true, startTime: "12:00", endTime: "15:30" });
   const [dinner, setDinner] = useState<ShiftConfig>({ enabled: true, startTime: "20:00", endTime: "23:30" });
@@ -73,7 +75,7 @@ export function OnboardingWizard() {
         restaurantName,
         slug,
         timezone,
-        ownerName,
+        ownerName: `${ownerFirstName.trim()} ${ownerLastName.trim()}`.trim(),
         ownerEmail,
         password,
         shifts: { lunch, dinner },
@@ -99,6 +101,10 @@ export function OnboardingWizard() {
 
   function handleFormSubmit(event: FormEvent) {
     event.preventDefault();
+    if (step === 2 && password !== passwordConfirm) {
+      setError("Las contraseñas no coinciden.");
+      return;
+    }
     if (step < 3) {
       goNext();
     } else {
@@ -174,15 +180,26 @@ export function OnboardingWizard() {
 
           {step === 2 ? (
             <div className="space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="ob-owner-name">Tu nombre</Label>
-                <Input
-                  id="ob-owner-name"
-                  value={ownerName}
-                  onChange={(e) => setOwnerName(e.target.value)}
-                  required
-                  autoFocus
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="ob-owner-first-name">Nombre</Label>
+                  <Input
+                    id="ob-owner-first-name"
+                    value={ownerFirstName}
+                    onChange={(e) => setOwnerFirstName(e.target.value)}
+                    required
+                    autoFocus
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="ob-owner-last-name">Apellido</Label>
+                  <Input
+                    id="ob-owner-last-name"
+                    value={ownerLastName}
+                    onChange={(e) => setOwnerLastName(e.target.value)}
+                    required
+                  />
+                </div>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="ob-owner-email">Email</Label>
@@ -207,6 +224,18 @@ export function OnboardingWizard() {
                   required
                 />
                 <p className="text-xs text-muted-foreground">Mínimo 8 caracteres.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="ob-password-confirm">Confirmar contraseña</Label>
+                <Input
+                  id="ob-password-confirm"
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={8}
+                  value={passwordConfirm}
+                  onChange={(e) => setPasswordConfirm(e.target.value)}
+                  required
+                />
               </div>
             </div>
           ) : null}

@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { getDictionary, defaultLocale } from "@/lib/i18n";
+import { normalizeArPhone } from "@/lib/validation/phone";
 import { ReservationItem, type MeReservation } from "./_components/reservation-item";
 
 async function fetchMyReservations(): Promise<{ reservations: MeReservation[] }> {
@@ -76,7 +77,7 @@ function LoginPrompt({ invalidLink }: { invalidLink: boolean }) {
     await fetch("/api/v1/auth/diner/magic-link", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ phone }),
+      body: JSON.stringify({ phone: normalizeArPhone(phone) }),
     });
     setLoading(false);
     setSent(true);
@@ -104,9 +105,10 @@ function LoginPrompt({ invalidLink }: { invalidLink: boolean }) {
               <Input
                 id="me-phone"
                 type="tel"
-                placeholder="+5491122223333"
+                placeholder="11 2222-3333"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
+                onBlur={(e) => setPhone(normalizeArPhone(e.target.value))}
                 required
               />
             </div>
