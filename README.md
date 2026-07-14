@@ -82,6 +82,14 @@ Login opcional por magic link (`/me`, pedís por teléfono, te llega un link por
 
 Si no hay horarios para la fecha/cantidad pedida, el wizard ofrece **anotarse en lista de espera** (con email, a diferencia del resto del flujo donde es opcional — es el único canal por el que se avisa). El worker de notificaciones revisa las entradas cada 1 minuto y, si aparece disponibilidad real para lo que alguien esperaba, le manda un email con el link para reservar — nadie reserva un lugar por otro, gana quien haga clic primero (el motor ya es seguro bajo concurrencia).
 
+## Reglas de reserva online (anticipación, tope de grupo, no-show automático)
+
+Configurables por restaurante desde Configuración, **solo afectan el autoservicio online** (`source: "web"`) — un walk-in o una reserva cargada a mano desde el panel nunca las pasa a revisar, porque ahí ya hay un humano del restaurante decidiendo.
+
+- **Ventana de reserva:** `minAdvanceMinutes` (anticipación mínima) y `maxAdvanceDays` (anticipación máxima, opcional — sin tope si no se configura). Se aplica dos veces: al listar horarios (`GET /api/v1/r/{slug}/availability` filtra los slots fuera de ventana antes de devolverlos) y de nuevo al confirmar la reserva (`POST`/`PATCH` revalidan server-side, nunca confían en que el horario mostrado siga siendo válido unos segundos después).
+- **Tope de grupo online:** `maxOnlinePartySize` (opcional) esconde del wizard los tamaños de mesa por encima del tope y, si igual se pide un número más grande a mano, muestra un mensaje invitando a llamar a `largeGroupPhone` en vez de dejar avanzar — reforzado server-side (`party_too_large`, 422) para que no alcance con editar el request.
+- **No-show automático:** `autoNoShowMinutes` (opcional, desactivado si no se configura) — el worker, en la misma corrida de cada minuto, revisa las reservas `confirmed` cuyo horario ya pasó hace más de ese margen y las pasa a `no_show` solas, liberando la mesa. Pensado para el caso típico de "no confirmó, no vino, no avisó" sin que el host tenga que estar mirando el reloj.
+
 ## Notificaciones (confirmación + recordatorio por email)
 
 Al confirmarse una reserva (web, o manual desde el panel cuando no es un walk-in ya sentado) se agendan dos filas en `notification`: una confirmación inmediata y un recordatorio `reminderHoursBefore` horas antes (configurable en Configuración, default 3). El envío real lo hace `pnpm worker` (`src/jobs/worker.ts`), un proceso aparte sobre pg-boss (misma base de Postgres, sin Redis ni broker extra) que cada 1 minuto busca notificaciones vencidas y las manda con el `EmailSender` que ya existía (consola en local, Resend en prod).
@@ -98,6 +106,15 @@ Al confirmarse una reserva (web, o manual desde el panel cuando no es un walk-in
 ### Lista de espera
 
 `waitlist_entry` (`waiting → notified → booked/expired`) vive scoped por restaurante+fecha+comensales. El worker, en la misma corrida de cada minuto, revisa las entradas `waiting`, corre `computeAvailability` para cada una y avisa por email si ahora hay lugar. Si el comensal termina reservando por su cuenta ese día, la entrada se marca `booked`; si la fecha pasó sin que nadie reservara, se marca `expired`.
+
+### Confirmar o cancelar por email
+
+El recordatorio incluye un link "confirmo que voy" y, tanto la confirmación como el recordatorio, un link "cancelar mi reserva" — ambos con un token firmado (HMAC, mismo esquema que el resto de la app) que vence 2 horas después del horario de la reserva. Los dos links son deliberadamente distintos en cómo actúan:
+
+- **Confirmar es un `GET`** que ejecuta al toque y redirige a una página de resultado (`/r/{slug}/action-result`) — es seguro porque no es destructivo, en el peor caso alguien lo abre sin querer y la reserva queda marcada como reconfirmada.
+- **Cancelar nunca ejecuta en un `GET`.** El link abre una página intermedia (`/r/{slug}/reservations/{id}/cancel`) que muestra el resumen de la reserva y pide un clic explícito en "Sí, cancelar mi reserva", que recién ahí dispara el `POST` real. Es a propósito: clientes de email y escaneres de seguridad (Outlook Safe Links, el proxy de imágenes de Gmail, antivirus corporativos) pre-visitan automáticamente los links de un email apenas llega, y un `GET` que cancelara directo terminaría cancelando reservas solas sin que el comensal haga nada.
+
+Confirmar por email no toca la máquina de estados — la reserva ya nace `confirmed` (flujo cero-fricción, sin aprobación manual), así que "confirmar" acá es una señal operativa aparte (`confirmedByDinerAt`) para que el restaurante sepa que el comensal reconfirmó que viene. La Agenda muestra un badge "Reconfirmó" junto al estado cuando está presente.
 
 ## Facturación (Mercado Pago) y superadmin
 
@@ -184,6 +201,7 @@ src/
     reservation/     # bookReservation: único punto de escritura, transaccional, best-fit + retry de deadlocks
                       # status-machine.ts: transiciones válidas de estado de una reserva
                       # notification-email.ts / ics.ts: contenido de los emails y el adjunto .ics
+                      # action-token.ts: token firmado de confirmar/cancelar por email, vence con la reserva
     email/           # Interfaz EmailSender (attachments incluidos; console-sender.ts local, resend-sender.ts prod)
     billing/         # mercadopago.ts: checkout, fetch de una suscripción, verificación de firma del webhook
     auth/            # signed-token.ts (HMAC compartido) · session.ts (staff) · diner-session.ts · magic-link.ts
@@ -192,7 +210,7 @@ src/
     validation/      # Schemas zod compartidos (admin.ts, auth.ts, booking.ts, phone.ts, onboarding.ts, superadmin.ts)
   jobs/
     worker.ts        # Proceso pg-boss aparte (`pnpm worker`): confirmación/recordatorio por email, lista de espera,
-                      # y reconciliación diaria de suscripciones contra Mercado Pago
+                      # no-show automático y reconciliación diaria de suscripciones contra Mercado Pago
 tests/
   unit/             # Motor de disponibilidad (lógica pura) — los 7 casos obligatorios de la spec + resolveSlot
   integration/      # bookReservation bajo concurrencia real contra Postgres
@@ -216,3 +234,5 @@ docker-compose.yml   # Postgres 17 local
 - **Facturación separada del dominio operativo:** `subscription` es una tabla aparte de `restaurant` a propósito (no columnas sueltas ahí) — billing es un concern de la plataforma, no algo que el restaurante configura. `evaluatePanelAccess()` (`src/db/subscription.ts`) es la única función que decide si el panel se bloquea; se llama una sola vez, desde el layout protegido — nunca desde el lado del comensal.
 - **Ambigüedad de fecha en horarios de madrugada:** al permitir turnos que cruzan medianoche apareció un bug real: `bookReservation` inferís la `date` a re-validar a partir del propio instante (`startsAt` en el timezone del restaurante), pero un horario de madrugada puede pertenecer al turno de HOY (uno que arranca temprano) o ser la cola de un turno de AYER que cruzó la medianoche — `dayOfWeek` queda anclado al día en que el turno arranca, no al día calendario del instante. La reserva se probaba contra la fecha equivocada y fallaba con `slot_unavailable` pese a que el horario sí estaba disponible. Se resolvió probando las dos fechas candidatas (la del instante y la anterior) antes de dar por no disponible.
 - **Branding por tenant:** `restaurant.settings.accentColor` pisa el acento en `/r/{slug}` (ver `src/app/r/[slug]/page.tsx`). Los tokens derivados del acento (`--accent-subtle`, `--ring`, etc.) usan `color-mix()` — y como `color-mix()` se resuelve en el punto donde CADA custom property se declara (no se "recalcula en cascada" al pisar solo `--accent` en un elemento anidado), hay que redeclarar todos los derivados juntos con el color literal del tenant, no alcanza con pisar `--accent` sola.
+- **Links de acción por email, `GET` seguro vs `POST` destructivo:** confirmar (no destructivo) ejecuta directo en el `GET` del link; cancelar (destructivo) nunca ejecuta en un `GET` — requiere aterrizar en una página intermedia y un clic explícito que dispara el `POST`. La razón concreta es que clientes de email y escaneres de seguridad pre-visitan links automáticamente apenas llega el mail, y eso cancelaría reservas solas si "cancelar" fuera un simple `GET`. El endpoint de cancelar reutiliza 100% `cancelReservation` — ninguna lógica de negocio nueva, solo el camino de entrada cambia.
+- **Reglas de reserva online son un filtro de la capa de caller, no del motor:** igual que `isPast`, la ventana de anticipación (`minAdvanceMinutes`/`maxAdvanceDays`) se implementa como un filtro aparte (`src/lib/availability/now-filter.ts`) aplicado sobre el resultado de `computeAvailability`, que sigue sin ningún concepto de "ahora" ni de reglas de negocio por tenant. El tope de grupo (`maxOnlinePartySize`) y la ventana se chequean explícitamente en los route handlers del flujo del comensal (creación y modificación), nunca dentro de `bookReservation` — a diferencia de `isPast`, que sí es universal, estas dos son reglas del autoservicio online exclusivamente, y un walk-in/reserva manual del panel no debe verse limitado por algo que el propio staff está decidiendo a mano.

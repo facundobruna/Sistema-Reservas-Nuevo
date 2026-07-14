@@ -1,6 +1,15 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, lt, sql } from "drizzle-orm";
 import type { db as dbClient } from "./client";
-import { customerRestaurant, mesa, notification, reservation, reservationMesa, seatingUnit, seatingUnitMesa } from "./schema";
+import {
+  customerRestaurant,
+  mesa,
+  notification,
+  reservation,
+  reservationMesa,
+  restaurant,
+  seatingUnit,
+  seatingUnitMesa,
+} from "./schema";
 import { canTransition, type ReservationStatus } from "@/lib/reservation/status-machine";
 
 export type UpdateStatusResult =
@@ -65,6 +74,49 @@ export async function updateReservationStatus(
 export async function cancelReservation(db: typeof dbClient, restaurantId: string, reservationId: string) {
   const result = await updateReservationStatus(db, restaurantId, reservationId, "cancelled");
   return result.ok ? result.reservation : null;
+}
+
+export async function getReservationById(db: typeof dbClient, restaurantId: string, reservationId: string) {
+  const [row] = await db
+    .select()
+    .from(reservation)
+    .where(and(eq(reservation.id, reservationId), eq(reservation.restaurantId, restaurantId)))
+    .limit(1);
+  return row ?? null;
+}
+
+/** El comensal reafirmó que viene (click en el link del recordatorio) — señal para el staff, no cambia el status. */
+export async function markConfirmedByDiner(db: typeof dbClient, reservationId: string) {
+  const [updated] = await db
+    .update(reservation)
+    .set({ confirmedByDinerAt: new Date() })
+    .where(eq(reservation.id, reservationId))
+    .returning();
+  return updated ?? null;
+}
+
+export type OverdueReservationCandidate = {
+  id: string;
+  restaurantId: string;
+  startsAt: Date;
+  restaurantSettings: unknown;
+};
+
+/** Reservas 'confirmed' cuyo horario ya pasó — candidatas a no-show automático (el worker filtra por el margen configurado). */
+export async function findOverdueConfirmedReservations(
+  db: typeof dbClient,
+  now: Date,
+): Promise<OverdueReservationCandidate[]> {
+  return db
+    .select({
+      id: reservation.id,
+      restaurantId: reservation.restaurantId,
+      startsAt: reservation.startsAt,
+      restaurantSettings: restaurant.settings,
+    })
+    .from(reservation)
+    .innerJoin(restaurant, eq(restaurant.id, reservation.restaurantId))
+    .where(and(eq(reservation.status, "confirmed"), lt(reservation.startsAt, now)));
 }
 
 export type ReassignResult =

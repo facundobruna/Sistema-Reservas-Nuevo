@@ -145,7 +145,15 @@ export type Restaurant = typeof restaurant.$inferSelect;
 export type SettingsInput = {
   name?: string;
   timezone?: string;
-  settings?: { reminderHoursBefore?: number; accentColor?: string };
+  settings?: {
+    reminderHoursBefore?: number;
+    accentColor?: string;
+    minAdvanceMinutes?: number;
+    maxAdvanceDays?: number | null;
+    maxOnlinePartySize?: number | null;
+    largeGroupPhone?: string;
+    autoNoShowMinutes?: number | null;
+  };
 };
 
 async function fetchSettings(): Promise<{ restaurant: Restaurant }> {
@@ -187,6 +195,7 @@ export type AgendaReservation = {
   customerId: string;
   customerName: string | null;
   customerPhone: string;
+  confirmedByDinerAt: string | null;
 };
 
 export type ReservationFilters = { date?: string; status?: ReservationStatus; zoneId?: string };

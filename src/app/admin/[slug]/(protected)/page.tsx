@@ -194,6 +194,11 @@ export default function AgendaPage() {
                   </span>
                   <span className="text-sm text-foreground">{r.customerName || "Sin nombre"}</span>
                   <Badge variant={STATUS_BADGE_VARIANT[r.status]}>{STATUS_LABEL[r.status]}</Badge>
+                  {r.confirmedByDinerAt ? (
+                    <Badge variant="success" title="El comensal reconfirmó que viene">
+                      Reconfirmó
+                    </Badge>
+                  ) : null}
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {r.customerPhone} · {r.partySize} personas · {zoneName(r.zoneId)}

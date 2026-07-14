@@ -18,11 +18,15 @@ export function BookingWizard({
   timezone,
   zones,
   services,
+  maxOnlinePartySize,
+  largeGroupPhone,
 }: {
   slug: string;
   timezone: string;
   zones: Zone[];
   services: Service[];
+  maxOnlinePartySize: number | null;
+  largeGroupPhone: string | null;
 }) {
   const locale = defaultLocale;
   const hasMultipleZones = zones.length > 1;
@@ -30,7 +34,14 @@ export function BookingWizard({
     useWizardParams(hasMultipleZones);
 
   if (step === "partySize") {
-    return <StepPartySize locale={locale} onSelect={setPartySize} />;
+    return (
+      <StepPartySize
+        locale={locale}
+        maxOnlinePartySize={maxOnlinePartySize}
+        largeGroupPhone={largeGroupPhone}
+        onSelect={setPartySize}
+      />
+    );
   }
 
   if (step === "date") {

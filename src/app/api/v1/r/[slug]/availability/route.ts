@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db/client";
 import { getRestaurantBySlug } from "@/db/restaurant";
-import { computeAvailability, excludePastSlots, loadAvailabilityInput } from "@/lib/availability";
+import { computeAvailability, excludePastSlots, filterWithinBookingWindow, loadAvailabilityInput } from "@/lib/availability";
 import { availabilityQuerySchema } from "@/lib/validation/booking";
 
 type Params = { params: Promise<{ slug: string }> };
@@ -31,6 +31,10 @@ export async function GET(request: Request, { params }: Params) {
     zoneId: parsed.data.zoneId,
   });
 
-  const slots = excludePastSlots(computeAvailability(input));
+  const settings = restaurant.settings as { minAdvanceMinutes?: number; maxAdvanceDays?: number | null };
+  const slots = filterWithinBookingWindow(excludePastSlots(computeAvailability(input)), new Date(), {
+    minAdvanceMinutes: settings.minAdvanceMinutes,
+    maxAdvanceDays: settings.maxAdvanceDays,
+  });
   return NextResponse.json({ slots });
 }

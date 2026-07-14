@@ -149,6 +149,14 @@ export const settingsUpdateSchema = z.object({
     .object({
       reminderHoursBefore: z.number().min(0).max(72).optional(),
       accentColor: z.string().trim().optional(),
+      // Ventana de reserva del autoservicio online — no aplica a lo que carga el staff a mano.
+      minAdvanceMinutes: z.number().int().min(0).max(10080).optional(),
+      maxAdvanceDays: z.number().int().min(1).max(365).nullable().optional(),
+      // Tope de grupo online + a quién llamar si te pasás.
+      maxOnlinePartySize: z.number().int().min(1).nullable().optional(),
+      largeGroupPhone: z.string().trim().max(40).optional(),
+      // No-show automático. null/undefined = desactivado.
+      autoNoShowMinutes: z.number().int().min(1).max(1440).nullable().optional(),
     })
     .partial()
     .optional(),

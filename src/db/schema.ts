@@ -288,6 +288,10 @@ export const reservation = pgTable(
     status: reservationStatusEnum("status").notNull().default("pending"),
     specialRequests: text("special_requests"),
     source: reservationSourceEnum("source").notNull().default("web"),
+    // Señal operativa separada del status: el comensal reafirmó que viene (click en el
+    // email de recordatorio). No es un estado de la máquina — una reserva 'confirmed'
+    // sigue siendo 'confirmed', esto solo se muestra en la Agenda para el staff.
+    confirmedByDinerAt: timestamp("confirmed_by_diner_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

@@ -6,10 +6,19 @@ import { findOrCreateCustomer } from "@/db/customer";
 import { scheduleReservationNotifications } from "@/db/notification";
 import { markWaitlistBooked } from "@/db/waitlist";
 import { createDinerSession } from "@/lib/auth/diner-session";
+import { isWithinBookingWindow } from "@/lib/availability";
 import { bookReservation } from "@/lib/reservation/book-reservation";
 import { createReservationSchema } from "@/lib/validation/booking";
 
 type Params = { params: Promise<{ slug: string }> };
+
+type RestaurantSettings = {
+  reminderHoursBefore?: number;
+  minAdvanceMinutes?: number;
+  maxAdvanceDays?: number | null;
+  maxOnlinePartySize?: number | null;
+  largeGroupPhone?: string;
+};
 
 export async function POST(request: Request, { params }: Params) {
   const { slug } = await params;
@@ -23,6 +32,21 @@ export async function POST(request: Request, { params }: Params) {
     return NextResponse.json({ error: "invalid_input", details: parsed.error.flatten() }, { status: 400 });
   }
   const { startsAt, partySize, zoneId, specialRequests, customer } = parsed.data;
+  const settings = restaurant.settings as RestaurantSettings;
+
+  // Topes exclusivos del autoservicio online — un walk-in o una reserva telefónica
+  // que carga el staff a mano no pasan por ninguno de los dos.
+  if (settings.maxOnlinePartySize != null && partySize > settings.maxOnlinePartySize) {
+    return NextResponse.json({ error: "party_too_large" }, { status: 422 });
+  }
+  if (
+    !isWithinBookingWindow(startsAt, new Date(), {
+      minAdvanceMinutes: settings.minAdvanceMinutes,
+      maxAdvanceDays: settings.maxAdvanceDays,
+    })
+  ) {
+    return NextResponse.json({ error: "slot_unavailable" }, { status: 409 });
+  }
 
   const customerRecord = await findOrCreateCustomer(db, restaurant.id, customer);
 
@@ -41,7 +65,6 @@ export async function POST(request: Request, { params }: Params) {
     return NextResponse.json({ error: "slot_unavailable" }, { status: 409 });
   }
 
-  const settings = restaurant.settings as { reminderHoursBefore?: number };
   await scheduleReservationNotifications(db, {
     reservationId: result.reservation.id,
     startsAt: result.reservation.startsAt.toISOString(),

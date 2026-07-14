@@ -10,11 +10,13 @@ import {
   markNotificationSkipped,
   recordNotificationFailure,
 } from "../db/notification";
+import { findOverdueConfirmedReservations, updateReservationStatus } from "../db/reservation";
 import { expirePastWaitlistEntries, findActiveWaitingEntries, markWaitlistNotified } from "../db/waitlist";
 import { findSubscriptionsWithMpPreapproval, updateSubscriptionFromMp } from "../db/subscription";
 import { computeAvailability, excludePastSlots, loadAvailabilityInput } from "../lib/availability";
 import { fetchPreapproval, mapMpStatusToSubscriptionStatus } from "../lib/billing/mercadopago";
 import { getEmailSender } from "../lib/email";
+import { createReservationActionToken } from "../lib/reservation/action-token";
 import { buildReservationIcs } from "../lib/reservation/ics";
 import { buildNotificationEmail } from "../lib/reservation/notification-email";
 
@@ -36,6 +38,18 @@ async function processDueNotifications(db: ReturnType<typeof drizzle<typeof sche
     }
 
     try {
+      // Vence un rato después de que termina la reserva — no un TTL fijo corto
+      // como el magic link, tiene que seguir sirviendo hasta público tarde.
+      const tokenExpiresAt = DateTime.fromJSDate(n.endsAt).plus({ hours: 2 }).toJSDate();
+      const actionToken = createReservationActionToken(n.reservationId, tokenExpiresAt);
+      const cancelUrl = `${APP_URL}/r/${n.restaurantSlug}/reservations/${n.reservationId}/cancel?token=${actionToken}`;
+      // "Confirmo que voy" solo tiene sentido ofrecerlo en el recordatorio, no
+      // apenas se reserva (recién se está pidiendo confirmarla otra vez).
+      const confirmUrl =
+        n.type === "reminder"
+          ? `${APP_URL}/api/v1/r/${n.restaurantSlug}/reservations/${n.reservationId}/confirm?token=${actionToken}`
+          : undefined;
+
       const content = buildNotificationEmail({
         type: n.type,
         restaurantName: n.restaurantName,
@@ -43,6 +57,8 @@ async function processDueNotifications(db: ReturnType<typeof drizzle<typeof sche
         startsAt: n.startsAt,
         partySize: n.partySize,
         customerName: n.customerName,
+        confirmUrl,
+        cancelUrl,
       });
 
       // El .ics solo tiene sentido en la confirmación — el recordatorio no necesita repetirlo.
@@ -120,6 +136,30 @@ async function processWaitlist(db: ReturnType<typeof drizzle<typeof schema>>) {
 }
 
 /**
+ * No-show automático: si `autoNoShowMinutes` está configurado (apagado por
+ * default) y pasó ese margen desde el horario de la reserva sin que nadie la
+ * haya sentado, se marca no_show sola — reutiliza updateReservationStatus
+ * tal cual (libera la mesa, suma al contador del cliente).
+ */
+async function processAutoNoShow(db: ReturnType<typeof drizzle<typeof schema>>) {
+  const candidates = await findOverdueConfirmedReservations(db, new Date());
+  for (const r of candidates) {
+    const settings = r.restaurantSettings as { autoNoShowMinutes?: number | null };
+    const minutes = settings.autoNoShowMinutes;
+    if (!minutes) continue;
+
+    const cutoff = DateTime.fromJSDate(r.startsAt).plus({ minutes });
+    if (DateTime.now() < cutoff) continue;
+
+    try {
+      await updateReservationStatus(db, r.restaurantId, r.id, "no_show");
+    } catch (err) {
+      console.error(`[worker] fallo marcando no-show automático ${r.id}:`, err);
+    }
+  }
+}
+
+/**
  * Respaldo del webhook de Mercado Pago (que en local ni siquiera puede llegar,
  * localhost no es alcanzable desde afuera): una vez al día, re-consulta el
  * estado real de cada suscripción que ya tiene un preapproval y lo sincroniza.
@@ -164,6 +204,7 @@ async function main() {
   async function tick() {
     await processDueNotifications(db);
     await processWaitlist(db);
+    await processAutoNoShow(db);
   }
 
   // Primera pasada inmediata: no esperar hasta el próximo tick del cron.
@@ -178,7 +219,7 @@ async function main() {
   });
 
   console.log(
-    `Worker corriendo: notificaciones + lista de espera cada 1 min, reconciliación de suscripciones a diario.`,
+    `Worker corriendo: notificaciones + lista de espera + no-show automático cada 1 min, reconciliación de suscripciones a diario.`,
   );
 }
 

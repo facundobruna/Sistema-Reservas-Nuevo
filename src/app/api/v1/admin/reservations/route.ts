@@ -47,6 +47,7 @@ export async function GET(request: Request) {
       customerId: reservation.customerId,
       customerName: customer.name,
       customerPhone: customer.phone,
+      confirmedByDinerAt: reservation.confirmedByDinerAt,
     })
     .from(reservation)
     .innerJoin(customer, eq(customer.id, reservation.customerId))

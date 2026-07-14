@@ -48,6 +48,7 @@ export type DueNotification = {
   customerEmail: string | null;
   restaurantName: string;
   restaurantTimezone: string;
+  restaurantSlug: string;
 };
 
 /** Notificaciones agendadas cuyo momento ya llegó — lo que el worker tiene que mandar ahora. */
@@ -65,6 +66,7 @@ export async function findDueNotifications(db: typeof dbClient, limit = 20): Pro
       customerEmail: customer.email,
       restaurantName: restaurant.name,
       restaurantTimezone: restaurant.timezone,
+      restaurantSlug: restaurant.slug,
     })
     .from(notification)
     .innerJoin(reservation, eq(reservation.id, notification.reservationId))

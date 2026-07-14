@@ -8,7 +8,11 @@ export default async function BookingPage({ params }: { params: Promise<{ slug: 
   const info = await getPublicRestaurantInfo(slug);
   if (!info) notFound();
 
-  const settings = info.restaurant.settings as { accentColor?: string };
+  const settings = info.restaurant.settings as {
+    accentColor?: string;
+    maxOnlinePartySize?: number | null;
+    largeGroupPhone?: string;
+  };
   // Los tokens derivados (--accent-subtle, --ring, etc.) se resuelven vía color-mix()
   // en el punto donde CADA custom property se declara, no en cascada al pisar solo
   // --accent — por eso hay que redeclararlos todos juntos acá, con el color literal.
@@ -32,6 +36,8 @@ export default async function BookingPage({ params }: { params: Promise<{ slug: 
           timezone={info.restaurant.timezone}
           zones={info.zones}
           services={info.services}
+          maxOnlinePartySize={settings.maxOnlinePartySize ?? null}
+          largeGroupPhone={settings.largeGroupPhone ?? null}
         />
       </Suspense>
     </div>

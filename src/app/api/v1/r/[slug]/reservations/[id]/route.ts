@@ -8,11 +8,18 @@ import { cancelReservation } from "@/db/reservation";
 import { scheduleReservationNotifications } from "@/db/notification";
 import { markWaitlistBooked } from "@/db/waitlist";
 import { getDinerSession } from "@/lib/auth/diner-session";
+import { isWithinBookingWindow } from "@/lib/availability";
 import { bookReservation } from "@/lib/reservation/book-reservation";
 import { updateReservationSchema } from "@/lib/validation/booking";
 
 type Params = { params: Promise<{ slug: string; id: string }> };
 type Restaurant = typeof restaurantTable.$inferSelect;
+type RestaurantSettings = {
+  reminderHoursBefore?: number;
+  minAdvanceMinutes?: number;
+  maxAdvanceDays?: number | null;
+  maxOnlinePartySize?: number | null;
+};
 
 async function loadOwnedReservation(slug: string, id: string) {
   const restaurant = await getRestaurantBySlug(slug);
@@ -55,6 +62,21 @@ async function modifyReservation(
 ) {
   const newStartsAt = changes.startsAt ?? current.startsAt.toISOString();
   const newPartySize = changes.partySize ?? current.partySize;
+  const settings = restaurant.settings as RestaurantSettings;
+
+  // Mismos topes del autoservicio online que al reservar por primera vez — modificar
+  // no puede ser una puerta trasera para saltarse la ventana o el tope de grupo.
+  if (settings.maxOnlinePartySize != null && newPartySize > settings.maxOnlinePartySize) {
+    return NextResponse.json({ error: "party_too_large" }, { status: 422 });
+  }
+  if (
+    !isWithinBookingWindow(newStartsAt, new Date(), {
+      minAdvanceMinutes: settings.minAdvanceMinutes,
+      maxAdvanceDays: settings.maxAdvanceDays,
+    })
+  ) {
+    return NextResponse.json({ error: "slot_unavailable" }, { status: 409 });
+  }
 
   const result = await bookReservation(db, {
     restaurantId: restaurant.id,
@@ -73,7 +95,6 @@ async function modifyReservation(
 
   await cancelReservation(db, restaurant.id, current.id);
 
-  const settings = restaurant.settings as { reminderHoursBefore?: number };
   await scheduleReservationNotifications(db, {
     reservationId: result.reservation.id,
     startsAt: result.reservation.startsAt.toISOString(),
