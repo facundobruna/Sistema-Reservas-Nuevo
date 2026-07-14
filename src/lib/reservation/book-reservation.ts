@@ -97,6 +97,17 @@ async function attemptUnit(
   return { outcome: "taken" };
 }
 
+async function tryResolveOnDate(db: typeof dbClient, params: BookReservationParams, date: string) {
+  const availabilityInput = await loadAvailabilityInput(db, {
+    restaurantId: params.restaurantId,
+    timezone: params.timezone,
+    date,
+    partySize: params.partySize,
+    zoneId: params.zoneId,
+  });
+  return resolveSlot({ ...availabilityInput, startsAt: params.startsAt });
+}
+
 /**
  * Único punto de escritura de reservas. Revalida disponibilidad server-side
  * (nunca confía en lo que mandó el cliente más allá del horario elegido) y
@@ -108,21 +119,18 @@ export async function bookReservation(
   db: typeof dbClient,
   params: BookReservationParams,
 ): Promise<BookReservationResult> {
-  const date = DateTime.fromISO(params.startsAt, { zone: params.timezone }).toISODate();
+  const localInstant = DateTime.fromISO(params.startsAt, { zone: params.timezone });
+  const date = localInstant.toISODate();
   if (!date) return { ok: false, error: "sin_disponibilidad" };
 
   // No se puede reservar un horario que ya pasó (relevante sobre todo al pedir para "hoy").
   if (isPast(params.startsAt)) return { ok: false, error: "sin_disponibilidad" };
 
-  const availabilityInput = await loadAvailabilityInput(db, {
-    restaurantId: params.restaurantId,
-    timezone: params.timezone,
-    date,
-    partySize: params.partySize,
-    zoneId: params.zoneId,
-  });
-
-  const resolved = resolveSlot({ ...availabilityInput, startsAt: params.startsAt });
+  // Un horario de madrugada puede ser un turno que arranca ese mismo día, o la cola
+  // de un turno que cruzó la medianoche desde el día anterior (dayOfWeek queda
+  // anclado al día en que el turno ARRANCA) — se prueban las dos fechas candidatas.
+  const previousDate = localInstant.minus({ days: 1 }).toISODate()!;
+  const resolved = (await tryResolveOnDate(db, params, date)) ?? (await tryResolveOnDate(db, params, previousDate));
   if (!resolved) return { ok: false, error: "sin_disponibilidad" };
 
   const startsAtDate = new Date(params.startsAt);

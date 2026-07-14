@@ -106,6 +106,8 @@ export type ShiftInput = {
   seatingMode?: "rolling" | "fixed";
   fixedTimes?: string[];
   pacingCap?: number | null;
+  bufferMin?: number;
+  overbookingPercent?: number;
 };
 
 export const useShifts = () => useResourceList<{ shifts: Shift[] }>("shifts", "/admin/shifts");

@@ -200,6 +200,14 @@ export const shift = pgTable(
     seatingMode: seatingModeEnum("seating_mode").notNull().default("rolling"),
     fixedTimes: time("fixed_times").array(),
     pacingCap: integer("pacing_cap"),
+    // Minutos mínimos entre que una reserva termina en una mesa y la siguiente puede
+    // empezar ahí (limpieza). No afecta el EXCLUDE de sin_solape: es una regla extra
+    // del motor puro, más estricta que "no pisarse", nunca más laxa.
+    bufferMin: integer("buffer_min").notNull().default(0),
+    // % en que se puede superar pacing_cap (apostando a no-shows). Nunca asigna dos
+    // reservas a la misma mesa: si no hay mesa física libre, el horario no aparece
+    // sin importar el overbooking — solo relaja el tope de cubiertos, no el de mesas.
+    overbookingPercent: integer("overbooking_percent").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -207,7 +215,11 @@ export const shift = pgTable(
     index("shift_service_id_idx").on(table.serviceId),
     index("shift_zone_id_idx").on(table.zoneId),
     check("shift_day_of_week_check", sql`${table.dayOfWeek} BETWEEN 0 AND 6`),
-    check("shift_time_check", sql`${table.endTime} > ${table.startTime}`),
+    // end_time <= start_time ya no es inválido: significa "cruza medianoche" (ver
+    // compute-availability.ts). Solo se prohíbe el caso degenerado de duración cero.
+    check("shift_time_check", sql`${table.endTime} <> ${table.startTime}`),
+    check("shift_overbooking_percent_check", sql`${table.overbookingPercent} BETWEEN 0 AND 100`),
+    check("shift_buffer_min_check", sql`${table.bufferMin} >= 0`),
   ],
 );
 

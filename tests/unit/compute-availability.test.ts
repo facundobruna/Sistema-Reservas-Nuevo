@@ -15,6 +15,12 @@ function iso(time: string): string {
   return DateTime.fromISO(`${DATE}T${time}`, { zone: TZ }).toUTC().toISO()!;
 }
 
+function isoOn(date: string, time: string): string {
+  return DateTime.fromISO(`${date}T${time}`, { zone: TZ }).toUTC().toISO()!;
+}
+
+const NEXT_DATE = DateTime.fromISO(DATE).plus({ days: 1 }).toISODate()!;
+
 function rollingShift(overrides: Partial<ShiftInput> = {}): ShiftInput {
   return {
     id: "shift-1",
@@ -28,6 +34,8 @@ function rollingShift(overrides: Partial<ShiftInput> = {}): ShiftInput {
     seatingMode: "rolling",
     fixedTimes: null,
     pacingCap: null,
+    bufferMin: 0,
+    overbookingPercent: 0,
     ...overrides,
   };
 }
@@ -211,6 +219,132 @@ describe("computeAvailability", () => {
 
     // La única unidad de la zona pedida (B) está ocupada -> sin disponibilidad,
     // aunque la zona A esté libre.
+    expect(result.map((s) => s.time)).not.toContain(iso("20:00"));
+  });
+
+  it("turno que cruza medianoche (rolling): genera horarios después de las 00:00 en el día siguiente", () => {
+    const crossingShift = rollingShift({
+      startTime: "22:00",
+      endTime: "02:00",
+      turnDurationMin: 60,
+      slotIntervalMin: 30,
+    });
+
+    const result = computeAvailability({
+      date: DATE,
+      partySize: 2,
+      timezone: TZ,
+      shifts: [crossingShift],
+      seatingUnits: [unit()],
+      activeReservations: [],
+      exception: null,
+    });
+
+    const times = result.map((s) => s.time).sort();
+    expect(times).toEqual(
+      [
+        isoOn(DATE, "22:00"),
+        isoOn(DATE, "22:30"),
+        isoOn(DATE, "23:00"),
+        isoOn(DATE, "23:30"),
+        isoOn(NEXT_DATE, "00:00"),
+        isoOn(NEXT_DATE, "00:30"),
+        isoOn(NEXT_DATE, "01:00"),
+      ].sort(),
+    );
+  });
+
+  it("turno que cruza medianoche (fixed): ubica cada horario fijo en el día que corresponde", () => {
+    const crossingFixed = rollingShift({
+      startTime: "22:00",
+      endTime: "02:00",
+      seatingMode: "fixed",
+      fixedTimes: ["22:00", "23:30", "00:30"],
+      turnDurationMin: 60,
+    });
+
+    const result = computeAvailability({
+      date: DATE,
+      partySize: 2,
+      timezone: TZ,
+      shifts: [crossingFixed],
+      seatingUnits: [unit()],
+      activeReservations: [],
+      exception: null,
+    });
+
+    const times = result.map((s) => s.time).sort();
+    expect(times).toEqual([isoOn(DATE, "22:00"), isoOn(DATE, "23:30"), isoOn(NEXT_DATE, "00:30")].sort());
+  });
+
+  it("buffer entre sentadas: bloquea un horario que solo toca el borde, aunque solapamiento exacto lo permitiría", () => {
+    // Reserva existente 20:00–21:30 en la única mesa. Sin buffer, 21:30 (borde) sería válido
+    // (ver test de "solapamiento exacto"); con buffer=30, hace falta esperar hasta 22:00.
+    const existing = reservation({ startsAt: iso("20:00"), endsAt: iso("21:30") });
+    const shiftWithBuffer = rollingShift({ bufferMin: 30, slotIntervalMin: 30, turnDurationMin: 60 });
+
+    const result = computeAvailability({
+      date: DATE,
+      partySize: 2,
+      timezone: TZ,
+      shifts: [shiftWithBuffer],
+      seatingUnits: [unit()],
+      activeReservations: [existing],
+      exception: null,
+    });
+
+    const times = result.map((s) => s.time);
+    expect(times).not.toContain(iso("21:30"));
+    expect(times).toContain(iso("22:00"));
+  });
+
+  it("overbooking: relaja el tope de cubiertos pero nunca hace aparecer una mesa ocupada", () => {
+    const busyElsewhere = reservation({
+      mesaIds: ["mesa-2"],
+      startsAt: iso("20:00"),
+      endsAt: iso("21:30"),
+      partySize: 6,
+    });
+    const seatingUnits = [unit({ id: "unit-1", mesaIds: ["mesa-1"] }), unit({ id: "unit-2", mesaIds: ["mesa-2"] })];
+
+    const withoutOverbooking = computeAvailability({
+      date: DATE,
+      partySize: 2,
+      timezone: TZ,
+      shifts: [rollingShift({ pacingCap: 6, slotIntervalMin: 30 })],
+      seatingUnits,
+      activeReservations: [busyElsewhere],
+      exception: null,
+    });
+    // 6 (ya ocupados) + 2 (este pedido) = 8 > pacingCap 6 -> bloqueado.
+    expect(withoutOverbooking.map((s) => s.time)).not.toContain(iso("20:00"));
+
+    const withOverbooking = computeAvailability({
+      date: DATE,
+      partySize: 2,
+      timezone: TZ,
+      shifts: [rollingShift({ pacingCap: 6, overbookingPercent: 50, slotIntervalMin: 30 })],
+      seatingUnits,
+      activeReservations: [busyElsewhere],
+      exception: null,
+    });
+    // effectiveCap = floor(6 * 1.5) = 9; 6 + 2 = 8 <= 9 -> permitido, y mesa-1 sigue libre.
+    expect(withOverbooking.map((s) => s.time)).toContain(iso("20:00"));
+  });
+
+  it("overbooking nunca asigna una mesa ya ocupada, aunque el pacing lo permita", () => {
+    const existing = reservation({ startsAt: iso("20:00"), endsAt: iso("21:30"), partySize: 2 });
+
+    const result = computeAvailability({
+      date: DATE,
+      partySize: 2,
+      timezone: TZ,
+      shifts: [rollingShift({ pacingCap: 6, overbookingPercent: 100, slotIntervalMin: 30 })],
+      seatingUnits: [unit()], // única mesa, ya ocupada
+      activeReservations: [existing],
+      exception: null,
+    });
+
     expect(result.map((s) => s.time)).not.toContain(iso("20:00"));
   });
 });

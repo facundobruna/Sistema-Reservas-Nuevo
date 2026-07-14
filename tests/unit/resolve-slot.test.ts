@@ -25,6 +25,8 @@ function rollingShift(overrides: Partial<ShiftInput> = {}): ShiftInput {
     seatingMode: "rolling",
     fixedTimes: null,
     pacingCap: null,
+    bufferMin: 0,
+    overbookingPercent: 0,
     ...overrides,
   };
 }

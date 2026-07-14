@@ -91,21 +91,28 @@ const shiftBase = z.object({
   seatingMode: z.enum(["rolling", "fixed"]).default("rolling"),
   fixedTimes: z.array(timeString).optional(),
   pacingCap: z.number().int().min(0).nullable().optional(),
+  // Minutos de limpieza entre una reserva y la siguiente en la misma mesa.
+  bufferMin: z.number().int().min(0).default(0),
+  // % en que se puede superar pacing_cap (apostando a no-shows) — nunca afecta la
+  // asignación de mesas, solo el tope de cubiertos.
+  overbookingPercent: z.number().int().min(0).max(100).default(0),
 });
 
+// end_time <= start_time significa "cruza medianoche" (ej. 22:00–02:00), ya no es
+// inválido — solo se prohíbe la duración cero (end_time === start_time).
 function refineShift<T extends z.infer<typeof shiftBase>>(v: T) {
-  return v.endTime > v.startTime && (v.seatingMode !== "fixed" || (v.fixedTimes?.length ?? 0) > 0);
+  return v.endTime !== v.startTime && (v.seatingMode !== "fixed" || (v.fixedTimes?.length ?? 0) > 0);
 }
 
 export const shiftCreateSchema = shiftBase.refine(refineShift, {
-  message: "end_time debe ser > start_time, y el modo fixed requiere fixed_times",
+  message: "end_time no puede ser igual a start_time, y el modo fixed requiere fixed_times",
 });
 
 export const shiftUpdateSchema = shiftBase.partial().refine((v) => {
-  if (v.startTime && v.endTime && v.endTime <= v.startTime) return false;
+  if (v.startTime && v.endTime && v.endTime === v.startTime) return false;
   if (v.seatingMode === "fixed" && v.fixedTimes !== undefined && v.fixedTimes.length === 0) return false;
   return true;
-}, "end_time debe ser > start_time, y el modo fixed requiere fixed_times");
+}, "end_time no puede ser igual a start_time, y el modo fixed requiere fixed_times");
 
 // --- Schedule exceptions -------------------------------------------------------
 

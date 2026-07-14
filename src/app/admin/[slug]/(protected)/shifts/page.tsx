@@ -43,6 +43,8 @@ const emptyForm = {
   seatingMode: "rolling" as "rolling" | "fixed",
   fixedTimes: "",
   pacingCap: "",
+  bufferMin: "0",
+  overbookingPercent: "0",
 };
 
 export default function ShiftsPage() {
@@ -76,6 +78,8 @@ export default function ShiftsPage() {
       seatingMode: shift.seatingMode,
       fixedTimes: (shift.fixedTimes ?? []).map((t) => t.slice(0, 5)).join(", "),
       pacingCap: shift.pacingCap === null ? "" : String(shift.pacingCap),
+      bufferMin: String(shift.bufferMin),
+      overbookingPercent: String(shift.overbookingPercent),
     });
     setOpen(true);
   }
@@ -99,6 +103,8 @@ export default function ShiftsPage() {
               .filter(Boolean)
           : undefined,
       pacingCap: form.pacingCap === "" ? null : Number(form.pacingCap),
+      bufferMin: Number(form.bufferMin),
+      overbookingPercent: Number(form.overbookingPercent),
     };
 
     if (editing) {
@@ -178,11 +184,14 @@ export default function ShiftsPage() {
                   <span className="text-sm font-medium text-foreground">{serviceName(shift.serviceId)}</span>
                   <Badge variant="outline">{DAY_LABELS[shift.dayOfWeek]}</Badge>
                   <Badge variant="accent">{shift.seatingMode === "rolling" ? "Rolling" : "Fixed"}</Badge>
+                  {shift.endTime <= shift.startTime ? <Badge variant="warning">Cruza medianoche</Badge> : null}
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {shift.startTime.slice(0, 5)}–{shift.endTime.slice(0, 5)} · {zoneName(shift.zoneId)} · turno de{" "}
                   {shift.turnDurationMin} min
                   {shift.pacingCap !== null ? ` · tope ${shift.pacingCap} cubiertos` : ""}
+                  {shift.pacingCap !== null && shift.overbookingPercent > 0 ? ` (+${shift.overbookingPercent}% overbooking)` : ""}
+                  {shift.bufferMin > 0 ? ` · buffer ${shift.bufferMin} min` : ""}
                 </p>
               </div>
               <div className="flex items-center gap-1">
@@ -288,6 +297,12 @@ export default function ShiftsPage() {
               </div>
             </div>
 
+            {form.startTime && form.endTime && form.endTime <= form.startTime ? (
+              <p className="text-xs text-muted-foreground">
+                Cruza medianoche: el turno arranca {form.startTime} y termina {form.endTime} del día siguiente.
+              </p>
+            ) : null}
+
             <div className="space-y-1.5">
               <Label htmlFor="shift-mode">Modo</Label>
               <Select
@@ -352,6 +367,32 @@ export default function ShiftsPage() {
                   placeholder="Sin tope"
                   value={form.pacingCap}
                   onChange={(e) => setForm((f) => ({ ...f, pacingCap: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="shift-buffer">Buffer entre sentadas (min)</Label>
+                <Input
+                  id="shift-buffer"
+                  type="number"
+                  min={0}
+                  value={form.bufferMin}
+                  onChange={(e) => setForm((f) => ({ ...f, bufferMin: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="shift-overbooking">Overbooking (%)</Label>
+                <Input
+                  id="shift-overbooking"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={form.overbookingPercent}
+                  onChange={(e) => setForm((f) => ({ ...f, overbookingPercent: e.target.value }))}
+                  disabled={form.pacingCap === ""}
+                  placeholder={form.pacingCap === "" ? "Requiere tope" : undefined}
                 />
               </div>
             </div>

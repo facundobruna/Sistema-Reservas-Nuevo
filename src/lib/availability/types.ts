@@ -16,6 +16,10 @@ export type ShiftInput = {
   seatingMode: SeatingMode;
   fixedTimes: string[] | null;
   pacingCap: number | null;
+  /** Minutos mínimos entre que una reserva termina en una mesa y la siguiente puede empezar ahí. */
+  bufferMin: number;
+  /** % en que se puede superar pacingCap (apostando a no-shows). No afecta la asignación de mesas. */
+  overbookingPercent: number;
 };
 
 export type SeatingUnitInput = {

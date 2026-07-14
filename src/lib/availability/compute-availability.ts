@@ -15,6 +15,18 @@ function localDateTime(date: string, time: string, timezone: string): DateTime {
   return DateTime.fromISO(`${date}T${time.slice(0, 5)}`, { zone: timezone });
 }
 
+function nextDate(date: string): string {
+  return DateTime.fromISO(date).plus({ days: 1 }).toISODate()!;
+}
+
+/**
+ * `end_time <= start_time` significa "cruza medianoche" (ej. 22:00–02:00), no un
+ * dato inválido — la constraint de la tabla ya lo permite (ver migración 0007).
+ */
+function crossesMidnight(shift: ShiftInput): boolean {
+  return shift.endTime <= shift.startTime;
+}
+
 function applyExceptionHours(shift: ShiftInput, exception: ScheduleExceptionInput | null): ShiftInput {
   if (exception?.kind === "special_hours" && exception.startTime && exception.endTime) {
     return { ...shift, startTime: exception.startTime, endTime: exception.endTime };
@@ -23,8 +35,10 @@ function applyExceptionHours(shift: ShiftInput, exception: ScheduleExceptionInpu
 }
 
 function candidateStarts(shift: ShiftInput, date: string, timezone: string): DateTime[] {
+  const wraps = crossesMidnight(shift);
+  const endDate = wraps ? nextDate(date) : date;
   const windowStart = localDateTime(date, shift.startTime, timezone);
-  const windowEnd = localDateTime(date, shift.endTime, timezone);
+  const windowEnd = localDateTime(endDate, shift.endTime, timezone);
   const latestStart = windowEnd.minus({ minutes: shift.turnDurationMin });
 
   if (latestStart < windowStart) return [];
@@ -38,7 +52,12 @@ function candidateStarts(shift: ShiftInput, date: string, timezone: string): Dat
   }
 
   return (shift.fixedTimes ?? [])
-    .map((t) => localDateTime(date, t, timezone))
+    .map((t) => {
+      // Un horario fijo antes de start_time solo puede caer del otro lado de la
+      // medianoche (ej. start=22:00, fixedTime=00:30 -> es la madrugada siguiente).
+      const onEndDate = wraps && t < shift.startTime;
+      return localDateTime(onEndDate ? endDate : date, t, timezone);
+    })
     .filter((t) => t >= windowStart && t <= latestStart);
 }
 
@@ -69,11 +88,15 @@ function pacingAllows(
   reservations: NormalizedReservation[],
 ): boolean {
   if (shift.pacingCap === null) return true;
+  // overbookingPercent relaja el TOPE DE CUBIERTOS únicamente — apuesta a que no
+  // todos se presentan. Nunca afecta isUnitFree: sin mesa física libre, no hay
+  // horario, por más margen de overbooking que haya.
+  const effectiveCap = Math.floor(shift.pacingCap * (1 + shift.overbookingPercent / 100));
   const pacingWindowEnd = start.plus({ minutes: shift.slotIntervalMin });
   const covers = reservations
     .filter((r) => r.startsAt >= start && r.startsAt < pacingWindowEnd)
     .reduce((sum, r) => sum + r.partySize, 0);
-  return covers + partySize <= shift.pacingCap;
+  return covers + partySize <= effectiveCap;
 }
 
 function isUnitFree(
@@ -81,10 +104,13 @@ function isUnitFree(
   start: DateTime,
   end: DateTime,
   reservations: NormalizedReservation[],
+  bufferMin: number,
 ): boolean {
   return unit.mesaIds.every(
     (mesaId) =>
-      !reservations.some((r) => r.mesaIds.includes(mesaId) && start < r.endsAt && r.startsAt < end),
+      !reservations.some(
+        (r) => r.mesaIds.includes(mesaId) && start < r.endsAt.plus({ minutes: bufferMin }) && r.startsAt < end,
+      ),
   );
 }
 
@@ -115,7 +141,9 @@ export function computeAvailability(input: ComputeAvailabilityInput): Availabili
 
       if (!pacingAllows(effectiveShift, start, partySize, reservations)) continue;
 
-      const hasFreeUnit = eligibleUnits.some((unit) => isUnitFree(unit, start, end, reservations));
+      const hasFreeUnit = eligibleUnits.some((unit) =>
+        isUnitFree(unit, start, end, reservations, effectiveShift.bufferMin),
+      );
       if (hasFreeUnit) {
         slots.push({ time: start.toUTC().toISO()!, serviceId: shift.serviceId });
       }
@@ -174,10 +202,21 @@ export function resolveSlot(
     if (!pacingAllows(effectiveShift, match, partySize, reservations)) continue;
 
     const endsAt = match.plus({ minutes: effectiveShift.turnDurationMin });
+    // El EXCLUDE de Postgres (sin_solape) es el árbitro final del solapamiento real,
+    // así que acá normalmente no hace falta pre-filtrar por eso (ver el comment de
+    // ResolvedSlot). El buffer es distinto: no está en el constraint de la base, es
+    // una regla extra del motor — si no se filtra acá, bookReservation podría sentar
+    // una reserva nueva dentro del margen de limpieza de otra. Con bufferMin=0 (el
+    // default de todo turno existente) el comportamiento es idéntico al de siempre.
+    const unitsForBooking =
+      effectiveShift.bufferMin > 0
+        ? eligibleUnits.filter((unit) => isUnitFree(unit, match, endsAt, reservations, effectiveShift.bufferMin))
+        : eligibleUnits;
+
     return {
       serviceId: shift.serviceId,
       endsAt: endsAt.toUTC().toISO()!,
-      eligibleUnits,
+      eligibleUnits: unitsForBooking,
     };
   }
 
