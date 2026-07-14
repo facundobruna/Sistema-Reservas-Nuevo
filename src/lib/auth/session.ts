@@ -12,6 +12,8 @@ export type StaffSessionPayload = {
   restaurantSlug: string;
   role: StaffRole;
   email: string;
+  /** Id del superadmin_user que abrió esta sesión por impersonación, si aplica. */
+  impersonatedBy?: string;
   exp: number;
 };
 

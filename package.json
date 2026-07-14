@@ -11,6 +11,7 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
     "db:studio": "drizzle-kit studio",
+    "superadmin:create": "tsx src/db/create-superadmin.ts",
     "worker": "tsx src/jobs/worker.ts",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -23,6 +24,7 @@
     "drizzle-orm": "^0.45.2",
     "lucide-react": "^1.23.0",
     "luxon": "^3.7.2",
+    "mercadopago": "^3.2.0",
     "next": "16.2.9",
     "next-themes": "^0.4.6",
     "pg": "^8.22.0",

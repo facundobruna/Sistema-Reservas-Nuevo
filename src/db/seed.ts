@@ -150,6 +150,10 @@ async function main() {
     passwordHash: hashPassword(DEMO_OWNER_PASSWORD),
   });
 
+  // 'active' directo (no 'trialing'): el demo tiene que andar siempre en local
+  // sin depender de Mercado Pago ni de que nadie se acuerde de renovar un trial.
+  await db.insert(schema.subscription).values({ restaurantId: restaurant.id, status: "active" });
+
   await pool.end();
 
   console.log("Listo. Restaurante demo:");

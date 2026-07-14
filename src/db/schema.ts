@@ -57,6 +57,7 @@ export const notificationTypeEnum = pgEnum("notification_type", ["confirmation",
 export const notificationChannelEnum = pgEnum("notification_channel", ["email", "whatsapp"]);
 export const notificationStatusEnum = pgEnum("notification_status", ["scheduled", "sent", "failed"]);
 export const waitlistStatusEnum = pgEnum("waitlist_status", ["waiting", "notified", "booked", "expired"]);
+export const subscriptionStatusEnum = pgEnum("subscription_status", ["trialing", "active", "past_due", "canceled"]);
 
 // ---------------------------------------------------------------------------
 // Tables
@@ -68,6 +69,9 @@ export const restaurant = pgTable("restaurant", {
   name: text("name").notNull(),
   timezone: text("timezone").notNull().default("America/Argentina/Buenos_Aires"),
   settings: jsonb("settings").notNull().default({}),
+  // Suspensión manual del superadmin (abuso, pedido del local, etc.) — independiente
+  // de si está al día con el pago, que se rastrea en `subscription`.
+  suspendedAt: timestamp("suspended_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -353,5 +357,62 @@ export const waitlistEntry = pgTable(
     index("waitlist_entry_restaurant_id_date_idx").on(table.restaurantId, table.date),
     index("waitlist_entry_status_idx").on(table.status),
     check("waitlist_entry_party_size_check", sql`${table.partySize} > 0`),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// SaaS-ops (M11) — separado del dominio operativo del restaurante a propósito:
+// facturación de la plataforma y herramientas de superadmin, no algo que un
+// restaurante configura o ve desde su panel salvo la propia suscripción.
+// ---------------------------------------------------------------------------
+
+// 1:1 con restaurant. El pago es SIEMPRE del restaurante hacia la plataforma
+// (suscripción B2B) — no hay ningún flujo de pago del lado del comensal acá.
+export const subscription = pgTable(
+  "subscription",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    restaurantId: uuid("restaurant_id")
+      .notNull()
+      .unique()
+      .references(() => restaurant.id, { onDelete: "cascade" }),
+    status: subscriptionStatusEnum("status").notNull().default("trialing"),
+    mpPreapprovalId: text("mp_preapproval_id"),
+    trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
+    currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("subscription_status_idx").on(table.status)],
+);
+
+// Cuenta global, no scoped por restaurant_id (a diferencia de staff_user) — opera
+// sobre todos los tenants. Sin alta pública: se crea con `pnpm superadmin:create`.
+export const superadminUser = pgTable("superadmin_user", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: citext("email").notNull().unique(),
+  name: text("name").notNull(),
+  passwordHash: text("password_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Toda acción de superadmin queda registrada acá — "acceso restringido y auditado".
+// `action` es texto libre (no enum) para no necesitar una migración cada vez que se
+// agrega un tipo de acción nuevo; el conjunto válido se controla desde TypeScript.
+export const auditLog = pgTable(
+  "audit_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    superadminId: uuid("superadmin_id")
+      .notNull()
+      .references(() => superadminUser.id, { onDelete: "cascade" }),
+    action: text("action").notNull(),
+    targetRestaurantId: uuid("target_restaurant_id").references(() => restaurant.id, { onDelete: "set null" }),
+    metadata: jsonb("metadata").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("audit_log_superadmin_id_idx").on(table.superadminId),
+    index("audit_log_target_restaurant_id_idx").on(table.targetRestaurantId),
   ],
 );

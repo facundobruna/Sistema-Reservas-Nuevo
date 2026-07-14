@@ -7,6 +7,7 @@ import {
   CalendarCheck,
   CalendarOff,
   Clock3,
+  CreditCard,
   LayoutGrid,
   MapPinned,
   Settings,
@@ -31,6 +32,7 @@ const CONFIG_ITEMS = [
   { href: "/services", label: "Servicios", icon: UtensilsCrossed },
   { href: "/shifts", label: "Turnos", icon: Clock3 },
   { href: "/exceptions", label: "Excepciones", icon: CalendarOff },
+  { href: "/billing", label: "Facturación", icon: CreditCard },
   { href: "/settings", label: "Configuración", icon: Settings },
 ];
 

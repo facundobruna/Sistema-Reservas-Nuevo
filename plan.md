@@ -219,7 +219,7 @@ Detalle clave: el `periodo` es semiabierto `[)` — dos sentadas que se tocan en
 
 ### M11 — SaaS-ops (separado del panel del restaurante)
 
-- Facturación B2B con Stripe (suscripción de los restaurantes). **Nunca** toca el flujo del comensal; la regla "sin seña" sigue intacta.
+- Facturación B2B con Mercado Pago (suscripción de los restaurantes, vía Preapproval). **Nunca** toca el flujo del comensal; la regla "sin seña" sigue intacta.
 - Super-admin: tenants, MRR/altas/churn, suspender/impersonar, feature flags. Acceso restringido y auditado.
 
 ### M12 — Detalles del motor (baja prioridad)

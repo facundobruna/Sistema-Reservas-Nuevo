@@ -4,7 +4,7 @@ El sistema de reservas más rápido y sin fricción del mercado: gestión de res
 
 ## Stack
 
-Node.js 22+ · TypeScript · Next.js 16 (App Router) · PostgreSQL 17 · Drizzle ORM · pg-boss · Luxon · Tailwind CSS 4 · Zod · React Query · pnpm.
+Node.js 22+ · TypeScript · Next.js 16 (App Router) · PostgreSQL 17 · Drizzle ORM · pg-boss · Mercado Pago (SDK oficial) · Luxon · Tailwind CSS 4 · Zod · React Query · pnpm.
 
 ## Requisitos
 
@@ -35,6 +35,9 @@ pnpm dev
 
 # 7. (Opcional) Levantar el worker de notificaciones, en otra terminal
 pnpm worker
+
+# 8. (Opcional) Crear una cuenta de superadmin para /superadmin
+pnpm superadmin:create -- --email=vos@ejemplo.com --password=algo-seguro --name="Tu nombre"
 ```
 
 La app queda en [http://localhost:3000](http://localhost:3000). Sin el worker corriendo, las reservas se siguen creando normalmente — simplemente no salen los emails de confirmación/recordatorio hasta que lo levantes (quedan agendados en `notification`, esperando).
@@ -49,6 +52,7 @@ El seed (`pnpm db:seed`, idempotente — se puede correr de nuevo sin duplicar d
 - **Servicios:** Almuerzo (turno *rolling*, cada 15 min) y Cena (turno *fixed*, horarios fijos), abiertos martes a domingo
 - **Excepción:** un cierre de ejemplo (evento privado)
 - **Staff:** un usuario `owner` — login en `/admin/demo/login` con `owner@fuegonorte.demo` / `demo1234`
+- **Suscripción:** `active` directo (no `trialing`) — el demo anda siempre en local sin depender de Mercado Pago
 
 ## Alta de un restaurante nuevo (self-serve)
 
@@ -95,6 +99,24 @@ Al confirmarse una reserva (web, o manual desde el panel cuando no es un walk-in
 
 `waitlist_entry` (`waiting → notified → booked/expired`) vive scoped por restaurante+fecha+comensales. El worker, en la misma corrida de cada minuto, revisa las entradas `waiting`, corre `computeAvailability` para cada una y avisa por email si ahora hay lugar. Si el comensal termina reservando por su cuenta ese día, la entrada se marca `booked`; si la fecha pasó sin que nadie reservara, se marca `expired`.
 
+## Facturación (Mercado Pago) y superadmin
+
+El pago es **siempre del restaurante hacia la plataforma** (suscripción B2B por usar el software) — no hay ningún flujo de pago del lado del comensal, eso sigue prohibido.
+
+- **Alta:** el onboarding crea la `subscription` en `trialing` con 14 días gratis, en la misma transacción que el resto del alta — el trial no le agrega ningún paso.
+- **Panel bloqueado si no paga:** al vencer el trial sin suscribirse, o si el pago queda `past_due`/`canceled`, el layout protegido del panel (`(protected)/layout.tsx`) redirige a `/admin/{slug}/billing` en vez de la Agenda. El flujo del comensal (`/r/{slug}` y sus APIs) **nunca** pasa por este chequeo, en ningún código path — es innegociable según la spec.
+- **Suscribirse:** desde `/admin/{slug}/billing`, un owner/manager crea una suscripción (Preapproval de Mercado Pago, un plan mensual fijo) y se lo redirige a la página de Mercado Pago para autorizarla.
+- **Sincronización de estado:** doble camino, nunca se confía en el body de un webhook sin re-consultar — `POST /api/v1/webhooks/mercadopago` (valida la firma con el SDK oficial de MP, re-consulta el preapproval real antes de tocar la base) **+** el worker, que además de notificaciones/waitlist corre una reconciliación diaria (`0 3 * * *`) re-consultando cada suscripción con preapproval contra la API de MP. Esto último es lo que permite probar la sincronización en local, ya que un webhook de Mercado Pago no puede alcanzar `localhost`.
+- **Para probar un checkout real** hace falta un access token de sandbox de Mercado Pago en `MP_ACCESS_TOKEN` (y `MP_WEBHOOK_SECRET` para el webhook) — sin eso, todo lo demás (gating, superadmin, auditoría) funciona igual, pero crear una suscripción real falla con un error claro en vez de romper el panel.
+
+**Superadmin** (`/superadmin`, sesión propia — cookie separada de `staff_session`, sin alta pública, se crea con `pnpm superadmin:create`):
+
+- Lista de tenants con estado de suscripción + métricas (`MRR` = suscripciones activas × precio, altas y cancelaciones por rango de fechas — un snapshot simple, no un BI).
+- Suspender/reactivar un restaurante (independiente de si está al día con el pago — puede ser por cualquier motivo).
+- Impersonar: reutiliza la sesión de staff normal (marcada con `impersonatedBy`), no un mecanismo aparte. El panel muestra un banner mientras dura, con un botón para salir.
+- Feature flags por tenant, genérico (`restaurant.settings.featureFlags`) — esta pasada entrega la herramienta, hoy no hay ninguna feature del producto que la use.
+- Toda acción de superadmin (suspender, reactivar, impersonar, tocar un flag) queda en `audit_log`.
+
 ## Scripts
 
 | Comando | Qué hace |
@@ -108,6 +130,7 @@ Al confirmarse una reserva (web, o manual desde el panel cuando no es un walk-in
 | `pnpm db:seed` | Siembra el restaurante de demo (borra y recrea el que tenga slug `demo`) |
 | `pnpm db:studio` | Abre Drizzle Studio para explorar la base |
 | `pnpm worker` | Levanta el worker de notificaciones (confirmación + recordatorio por email) |
+| `pnpm superadmin:create -- --email= --password= --name=` | Crea una cuenta de superadmin (sin alta pública) |
 
 ## Estructura
 
@@ -126,14 +149,23 @@ src/
     onboarding.ts     # createRestaurantOnboarding: alta self-serve (restaurant + zona + turnos + owner) en una transacción
     notification.ts   # scheduleReservationNotifications + findDue/markSent/markSkipped/recordFailure
     waitlist.ts        # joinWaitlist (idempotente) + findActiveWaitingEntries/markNotified/markBooked/expirePast
+    subscription.ts    # createTrialSubscription + evaluatePanelAccess (única fuente de verdad del bloqueo)
+    audit.ts           # logAudit: toda acción de superadmin
+    create-superadmin.ts # Script (`pnpm superadmin:create`): sin alta pública
   app/api/v1/
     auth/staff/        # login (scoped por slug) / logout
+    auth/superadmin/    # login / logout (sesión separada de staff)
     admin/             # CRUD REST: zones, mesas, seating-units, services, shifts, exceptions, settings
                         # + reservations (agenda, walk-in, cambio de estado, reasignar mesa), customers (buscar + export CSV), stats
+                        # + billing/ (estado de la suscripción, iniciar checkout)
     onboarding/        # POST público: alta self-serve de restaurante + owner, abre sesión
-  app/admin/[slug]/    # Panel: login público + rutas protegidas (grupo (protected)): agenda (portada), share, zones, mesas,
-                        # seating-units, services, shifts, exceptions, customers, stats, settings
+    superadmin/         # tenants (listar/detalle/suspender/reactivar/impersonar/feature-flags), stats (MRR/altas/churn)
+    webhooks/mercadopago/ # Notificaciones de Mercado Pago sobre cambios de estado de una suscripción
+  app/admin/[slug]/    # Panel: login público + billing (fuera del gating, para poder pagar) + rutas protegidas
+                        # (grupo (protected)): agenda (portada), share, zones, mesas, seating-units, services, shifts,
+                        # exceptions, customers, stats, settings — bloqueadas si la suscripción no está al día
   app/onboarding/      # Wizard público de alta de restaurante (3 pasos)
+  app/superadmin/      # login público + dashboard protegido (tenants, métricas, detalle de tenant)
   app/api/v1/r/[slug]/             # GET público (info) · availability/ · reservations/ (+[id], modificar/cancelar) · waitlist/
   app/api/v1/auth/diner/            # magic-link (pedir) · verify (canjear)
   app/api/v1/me/reservations/       # Reservas del comensal logueado (todas las restaurantes)
@@ -145,11 +177,14 @@ src/
                       # status-machine.ts: transiciones válidas de estado de una reserva
                       # notification-email.ts / ics.ts: contenido de los emails y el adjunto .ics
     email/           # Interfaz EmailSender (attachments incluidos; console-sender.ts local, resend-sender.ts prod)
-    auth/            # signed-token.ts (HMAC compartido) · session.ts (staff) · diner-session.ts · magic-link.ts · require-staff.ts
+    billing/         # mercadopago.ts: checkout, fetch de una suscripción, verificación de firma del webhook
+    auth/            # signed-token.ts (HMAC compartido) · session.ts (staff) · diner-session.ts · magic-link.ts
+                      # superadmin-session.ts · require-staff.ts · require-superadmin.ts
     i18n/            # Copy ES/EN + interpolate() para templates con {variables}
-    validation/      # Schemas zod compartidos (admin.ts, auth.ts, booking.ts, phone.ts, onboarding.ts)
+    validation/      # Schemas zod compartidos (admin.ts, auth.ts, booking.ts, phone.ts, onboarding.ts, superadmin.ts)
   jobs/
-    worker.ts        # Proceso pg-boss aparte (`pnpm worker`): manda confirmación/recordatorio por email + revisa la lista de espera
+    worker.ts        # Proceso pg-boss aparte (`pnpm worker`): confirmación/recordatorio por email, lista de espera,
+                      # y reconciliación diaria de suscripciones contra Mercado Pago
 tests/
   unit/             # Motor de disponibilidad (lógica pura) — los 7 casos obligatorios de la spec + resolveSlot
   integration/      # bookReservation bajo concurrencia real contra Postgres
@@ -169,4 +204,6 @@ docker-compose.yml   # Postgres 17 local
 - **Reserva sin doble-booking bajo concurrencia:** `bookReservation` revalida el horario server-side (nunca confía en lo que mandó el cliente) vía `resolveSlot`, y prueba las unidades candidatas en orden best-fit, una transacción por intento. Bajo carga real, Postgres puede resolver dos transacciones que compiten por la misma mesa de dos formas: una viola limpio el `EXCLUDE` (`23P01`, la unidad está tomada) o el detector de deadlocks aborta una de las dos (`40P01`, no dice nada sobre disponibilidad) — `bookReservation` reintenta ante lo segundo y solo pasa a la siguiente unidad ante lo primero. El test de integración de concurrencia lo ejercita de verdad contra Postgres y fue el que hizo aparecer el caso del deadlock.
 - **Reservas confirman al toque:** no hay paso de aprobación manual en ningún punto de la spec — `bookReservation` crea la reserva en estado `confirmed` directamente (no `pending`), consistente con la promesa de cero fricción.
 - **Notificaciones:** `notification` es la fuente de verdad (`scheduled → sent/failed`, con `attempts` para acotar reintentos); el worker de pg-boss es "solo" el proceso que la vacía cada 1 minuto, no dueño del estado. Esto mantiene la lógica de negocio (cuándo cancelar un recordatorio, cuándo agendar uno nuevo) en el mismo lugar que el resto del dominio (`src/db/`), no dispersa en callbacks de la cola.
+- **Impersonar sin mecanismo aparte:** el superadmin no tiene una forma especial de "ver como" un restaurante — simplemente abre una `staff_session` normal para el owner de ese tenant, marcada con `impersonatedBy`. Reutiliza el 100% de la autenticación/autorización del panel ya existente en vez de inventar un camino paralelo, que sería más superficie para tener mal.
+- **Facturación separada del dominio operativo:** `subscription` es una tabla aparte de `restaurant` a propósito (no columnas sueltas ahí) — billing es un concern de la plataforma, no algo que el restaurante configura. `evaluatePanelAccess()` (`src/db/subscription.ts`) es la única función que decide si el panel se bloquea; se llama una sola vez, desde el layout protegido — nunca desde el lado del comensal.
 - **Branding por tenant:** `restaurant.settings.accentColor` pisa el acento en `/r/{slug}` (ver `src/app/r/[slug]/page.tsx`). Los tokens derivados del acento (`--accent-subtle`, `--ring`, etc.) usan `color-mix()` — y como `color-mix()` se resuelve en el punto donde CADA custom property se declara (no se "recalcula en cascada" al pisar solo `--accent` en un elemento anidado), hay que redeclarar todos los derivados juntos con el color literal del tenant, no alcanza con pisar `--accent` sola.

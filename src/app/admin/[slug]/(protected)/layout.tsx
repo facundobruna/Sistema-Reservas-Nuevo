@@ -1,7 +1,11 @@
 import type { ReactNode } from "react";
+import { redirect } from "next/navigation";
 import { requireStaffPage } from "@/lib/auth/require-staff";
 import { getRestaurantBySlug } from "@/db/restaurant";
+import { db } from "@/db/client";
+import { evaluatePanelAccess, getSubscriptionByRestaurantId } from "@/db/subscription";
 import { AdminNav } from "../_components/admin-nav";
+import { ImpersonationBanner } from "../_components/impersonation-banner";
 import { LogoutButton } from "../_components/logout-button";
 
 export default async function AdminProtectedLayout({
@@ -14,6 +18,17 @@ export default async function AdminProtectedLayout({
   const { slug } = await params;
   const session = await requireStaffPage(slug);
   const restaurant = await getRestaurantBySlug(slug);
+
+  // El bloqueo es exclusivo de este layout (todo el panel del staff). El flujo
+  // del comensal (/r/{slug} y sus APIs) nunca pasa por acá — no tiene ningún
+  // chequeo de suscripción, en ningún código path.
+  if (restaurant) {
+    const subscription = await getSubscriptionByRestaurantId(db, restaurant.id);
+    const access = evaluatePanelAccess({ suspendedAt: restaurant.suspendedAt, subscription });
+    if (access !== "ok") {
+      redirect(`/admin/${slug}/billing`);
+    }
+  }
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -30,6 +45,7 @@ export default async function AdminProtectedLayout({
       </aside>
 
       <div className="flex flex-1 flex-col">
+        {session.impersonatedBy ? <ImpersonationBanner slug={slug} /> : null}
         <header className="flex items-center justify-between border-b border-border px-6 py-3 md:hidden">
           <p className="font-display text-base text-foreground">{restaurant?.name ?? slug}</p>
         </header>

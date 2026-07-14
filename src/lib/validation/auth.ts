@@ -10,3 +10,8 @@ export const staffLoginSchema = z.object({
 export const magicLinkRequestSchema = z.object({
   phone: e164Phone,
 });
+
+export const superadminLoginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+});

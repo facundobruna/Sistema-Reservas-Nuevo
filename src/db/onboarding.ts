@@ -1,5 +1,6 @@
 import type { db as dbClient } from "./client";
 import { restaurant, service, shift, staffUser, zone } from "./schema";
+import { createTrialSubscription } from "./subscription";
 import { hashPassword } from "../lib/auth/password";
 import type { OnboardingInput } from "../lib/validation/onboarding";
 
@@ -18,6 +19,7 @@ export async function createRestaurantOnboarding(db: typeof dbClient, input: Onb
       .returning();
 
     await trx.insert(zone).values({ restaurantId: newRestaurant.id, name: "Salón principal", position: 0 });
+    await createTrialSubscription(trx, newRestaurant.id);
 
     const presets: { key: "lunch" | "dinner"; name: string; position: number }[] = [
       { key: "lunch", name: "Almuerzo", position: 0 },
