@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db/client";
 import { getRestaurantBySlug } from "@/db/restaurant";
 import { cancelReservation, getReservationById } from "@/db/reservation";
+import { scheduleStaffAlert } from "@/db/notification";
 import { verifyReservationActionToken } from "@/lib/reservation/action-token";
 
 type Params = { params: Promise<{ slug: string; id: string }> };
@@ -32,5 +33,6 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   const cancelled = await cancelReservation(db, restaurant.id, id);
+  if (cancelled) await scheduleStaffAlert(db, { reservationId: cancelled.id, type: "staff_cancelled" });
   return NextResponse.json({ reservation: cancelled });
 }

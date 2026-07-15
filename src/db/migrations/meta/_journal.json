@@ -71,6 +71,13 @@
       "when": 1784119497492,
       "tag": "0009_melted_penance",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784122703650,
+      "tag": "0010_mysterious_the_fury",
+      "breakpoints": true
     }
   ]
 }

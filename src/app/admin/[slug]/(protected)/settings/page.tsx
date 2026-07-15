@@ -1,14 +1,26 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { Copy, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/error-state";
-import { useSettings, useUpdateSettings, type Restaurant } from "../../_lib/resources";
+import { useRegenerateCalendarToken, useSettings, useUpdateSettings, type Restaurant } from "../../_lib/resources";
 
 type RestaurantSettings = {
   reminderHoursBefore?: number;
@@ -17,6 +29,7 @@ type RestaurantSettings = {
   maxOnlinePartySize?: number | null;
   largeGroupPhone?: string;
   autoNoShowMinutes?: number | null;
+  notifyEmail?: string;
 };
 
 export default function SettingsPage() {
@@ -41,13 +54,16 @@ export default function SettingsPage() {
           }
         />
       ) : (
-        <SettingsForm restaurant={data.restaurant} />
+        <div className="max-w-md space-y-4">
+          <SettingsForm restaurant={data.restaurant} ownerEmail={data.ownerEmail} />
+          <CalendarCard calendarUrl={data.calendarUrl} />
+        </div>
       )}
     </div>
   );
 }
 
-function SettingsForm({ restaurant }: { restaurant: Restaurant }) {
+function SettingsForm({ restaurant, ownerEmail }: { restaurant: Restaurant; ownerEmail: string | null }) {
   const updateSettings = useUpdateSettings();
   const initialSettings = restaurant.settings as RestaurantSettings;
 
@@ -65,6 +81,7 @@ function SettingsForm({ restaurant }: { restaurant: Restaurant }) {
   const [autoNoShowMinutes, setAutoNoShowMinutes] = useState(
     initialSettings.autoNoShowMinutes == null ? "" : String(initialSettings.autoNoShowMinutes),
   );
+  const [notifyEmail, setNotifyEmail] = useState(initialSettings.notifyEmail ?? "");
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -79,6 +96,7 @@ function SettingsForm({ restaurant }: { restaurant: Restaurant }) {
           maxOnlinePartySize: maxOnlinePartySize === "" ? null : Number(maxOnlinePartySize),
           largeGroupPhone,
           autoNoShowMinutes: autoNoShowMinutes === "" ? null : Number(autoNoShowMinutes),
+          notifyEmail,
         },
       },
       {
@@ -89,7 +107,7 @@ function SettingsForm({ restaurant }: { restaurant: Restaurant }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="max-w-md space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4">
       <Card>
         <CardContent className="space-y-4 pt-6">
           <div className="space-y-1.5">
@@ -127,6 +145,20 @@ function SettingsForm({ restaurant }: { restaurant: Restaurant }) {
               value={autoNoShowMinutes}
               onChange={(e) => setAutoNoShowMinutes(e.target.value)}
             />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="settings-notify-email">Email para avisos de reservas nuevas/canceladas</Label>
+            <Input
+              id="settings-notify-email"
+              type="email"
+              placeholder={ownerEmail ? `Por default: ${ownerEmail}` : "owner@turestaurante.com"}
+              value={notifyEmail}
+              onChange={(e) => setNotifyEmail(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Se manda cuando un comensal reserva o cancela por su cuenta — no en walk-ins ni reservas cargadas a
+              mano desde el panel.
+            </p>
           </div>
         </CardContent>
       </Card>
@@ -198,5 +230,69 @@ function SettingsForm({ restaurant }: { restaurant: Restaurant }) {
         Guardar cambios
       </Button>
     </form>
+  );
+}
+
+function CalendarCard({ calendarUrl }: { calendarUrl: string }) {
+  const regenerate = useRegenerateCalendarToken();
+  const [url, setUrl] = useState(calendarUrl);
+
+  function handleCopy() {
+    navigator.clipboard.writeText(url).then(
+      () => toast.success("Copiado al portapapeles"),
+      () => toast.error("No se pudo copiar"),
+    );
+  }
+
+  function handleRegenerate() {
+    regenerate.mutate(undefined, {
+      onSuccess: (data) => {
+        setUrl(data.calendarUrl);
+        toast.success("Link regenerado — el anterior dejó de funcionar");
+      },
+      onError: () => toast.error("No se pudo regenerar el link"),
+    });
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Calendario</CardTitle>
+        <CardDescription>
+          Suscribite desde Google Calendar, Outlook o Apple Calendar para ver las reservas del restaurante.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex items-start gap-2">
+          <Input readOnly value={url} className="font-mono text-xs" />
+          <Button type="button" size="icon" variant="outline" onClick={handleCopy} aria-label="Copiar">
+            <Copy className="size-4" />
+          </Button>
+        </div>
+        <AlertDialog>
+          <AlertDialogTrigger
+            render={
+              <Button type="button" size="sm" variant="outline" className="gap-1.5">
+                <RefreshCw className="size-4" />
+                Regenerar link
+              </Button>
+            }
+          />
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>¿Regenerar el link del calendario?</AlertDialogTitle>
+              <AlertDialogDescription>
+                El link anterior deja de funcionar al toque — quien esté suscripto con el viejo va a tener que
+                suscribirse de nuevo con el nuevo link.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={handleRegenerate}>Regenerar</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </CardContent>
+    </Card>
   );
 }

@@ -1,7 +1,7 @@
 import { and, eq, lte } from "drizzle-orm";
 import { DateTime } from "luxon";
 import type { db as dbClient } from "./client";
-import { customer, notification, reservation, restaurant } from "./schema";
+import { customer, notification, reservation, restaurant, staffUser } from "./schema";
 
 /**
  * Registra la confirmación (inmediata) y el recordatorio (`reminderHoursBefore`
@@ -36,9 +36,11 @@ export async function scheduleReservationNotifications(
 // worker) se marca failed y deja de reintentarse.
 const MAX_ATTEMPTS = 5;
 
+export type NotificationType = "confirmation" | "reminder" | "staff_new" | "staff_cancelled";
+
 export type DueNotification = {
   id: string;
-  type: "confirmation" | "reminder";
+  type: NotificationType;
   attempts: number;
   reservationId: string;
   startsAt: Date;
@@ -46,9 +48,12 @@ export type DueNotification = {
   partySize: number;
   customerName: string | null;
   customerEmail: string | null;
+  customerPhone: string;
+  restaurantId: string;
   restaurantName: string;
   restaurantTimezone: string;
   restaurantSlug: string;
+  restaurantSettings: unknown;
 };
 
 /** Notificaciones agendadas cuyo momento ya llegó — lo que el worker tiene que mandar ahora. */
@@ -64,9 +69,12 @@ export async function findDueNotifications(db: typeof dbClient, limit = 20): Pro
       partySize: reservation.partySize,
       customerName: customer.name,
       customerEmail: customer.email,
+      customerPhone: customer.phone,
+      restaurantId: restaurant.id,
       restaurantName: restaurant.name,
       restaurantTimezone: restaurant.timezone,
       restaurantSlug: restaurant.slug,
+      restaurantSettings: restaurant.settings,
     })
     .from(notification)
     .innerJoin(reservation, eq(reservation.id, notification.reservationId))
@@ -74,6 +82,36 @@ export async function findDueNotifications(db: typeof dbClient, limit = 20): Pro
     .innerJoin(restaurant, eq(restaurant.id, reservation.restaurantId))
     .where(and(eq(notification.status, "scheduled"), lte(notification.scheduledFor, new Date())))
     .limit(limit);
+}
+
+/** Avisa al restaurante (no al comensal) de una reserva nueva o cancelada — misma cola/reintentos
+ *  que confirmation/reminder, se agenda para "ahora" igual que la confirmación. */
+export async function scheduleStaffAlert(
+  db: typeof dbClient,
+  params: { reservationId: string; type: "staff_new" | "staff_cancelled" },
+) {
+  await db.insert(notification).values({
+    reservationId: params.reservationId,
+    type: params.type,
+    channel: "email",
+    status: "scheduled",
+    scheduledFor: new Date(),
+  });
+}
+
+/** settings.notifyEmail si está configurado; si no, el email del owner (siempre existe). */
+export async function resolveStaffAlertEmail(
+  db: typeof dbClient,
+  restaurantId: string,
+  settings: { notifyEmail?: string },
+): Promise<string | null> {
+  if (settings.notifyEmail) return settings.notifyEmail;
+  const [owner] = await db
+    .select({ email: staffUser.email })
+    .from(staffUser)
+    .where(and(eq(staffUser.restaurantId, restaurantId), eq(staffUser.role, "owner")))
+    .limit(1);
+  return owner?.email ?? null;
 }
 
 export async function markNotificationSent(db: typeof dbClient, id: string) {

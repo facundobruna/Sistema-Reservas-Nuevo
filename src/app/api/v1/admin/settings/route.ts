@@ -1,17 +1,30 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db/client";
-import { restaurant } from "@/db/schema";
+import { restaurant, staffUser } from "@/db/schema";
 import { requireStaffSession } from "@/lib/auth/require-staff";
+import { createCalendarToken } from "@/lib/reservation/calendar-token";
 import { settingsUpdateSchema } from "@/lib/validation/admin";
 
-export async function GET() {
+export async function GET(request: Request) {
   const auth = await requireStaffSession();
   if ("error" in auth) return auth.error;
 
   const [row] = await db.select().from(restaurant).where(eq(restaurant.id, auth.session.restaurantId)).limit(1);
   if (!row) return NextResponse.json({ error: "not_found" }, { status: 404 });
-  return NextResponse.json({ restaurant: row });
+
+  const [owner] = await db
+    .select({ email: staffUser.email })
+    .from(staffUser)
+    .where(and(eq(staffUser.restaurantId, auth.session.restaurantId), eq(staffUser.role, "owner")))
+    .limit(1);
+
+  const settings = row.settings as { calendarTokenVersion?: number };
+  const appUrl = process.env.APP_URL ?? new URL(request.url).origin;
+  const token = createCalendarToken(row.id, settings.calendarTokenVersion ?? 0);
+  const calendarUrl = `${appUrl}/api/v1/r/${row.slug}/calendar.ics?token=${token}`;
+
+  return NextResponse.json({ restaurant: row, ownerEmail: owner?.email ?? null, calendarUrl });
 }
 
 export async function PATCH(request: Request) {

@@ -157,6 +157,9 @@ export const settingsUpdateSchema = z.object({
       largeGroupPhone: z.string().trim().max(40).optional(),
       // No-show automático. null/undefined = desactivado.
       autoNoShowMinutes: z.number().int().min(1).max(1440).nullable().optional(),
+      // Destino de los avisos de "nueva reserva"/"cancelación" del comensal. Vacío =
+      // usa el email del owner como default (ver resolveStaffAlertEmail).
+      notifyEmail: z.union([z.string().trim().email(), z.literal("")]).optional(),
     })
     .partial()
     .optional(),

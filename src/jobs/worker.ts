@@ -9,16 +9,19 @@ import {
   markNotificationSent,
   markNotificationSkipped,
   recordNotificationFailure,
+  resolveStaffAlertEmail,
+  type DueNotification,
 } from "../db/notification";
 import { findOverdueConfirmedReservations, updateReservationStatus } from "../db/reservation";
 import { expirePastWaitlistEntries, findActiveWaitingEntries, markWaitlistNotified } from "../db/waitlist";
 import { findSubscriptionsWithMpPreapproval, updateSubscriptionFromMp } from "../db/subscription";
 import { computeAvailability, excludePastSlots, loadAvailabilityInput } from "../lib/availability";
 import { fetchPreapproval, mapMpStatusToSubscriptionStatus } from "../lib/billing/mercadopago";
-import { getEmailSender } from "../lib/email";
+import { getEmailSender, type EmailSender } from "../lib/email";
 import { createReservationActionToken } from "../lib/reservation/action-token";
 import { buildReservationIcs } from "../lib/reservation/ics";
 import { buildNotificationEmail } from "../lib/reservation/notification-email";
+import { buildStaffAlertEmail } from "../lib/reservation/staff-alert-email";
 
 const QUEUE = "send-due-notifications";
 const POLL_CRON = "* * * * *"; // cada 1 minuto
@@ -26,12 +29,49 @@ const RECONCILE_QUEUE = "reconcile-subscriptions";
 const RECONCILE_CRON = "0 3 * * *"; // una vez al día, de madrugada
 const APP_URL = process.env.APP_URL ?? "http://localhost:3000";
 
+/** Avisos al restaurante (no al comensal) de una reserva nueva o cancelada. */
+async function sendStaffAlert(
+  db: ReturnType<typeof drizzle<typeof schema>>,
+  sender: EmailSender,
+  n: DueNotification & { type: "staff_new" | "staff_cancelled" },
+) {
+  try {
+    const settings = n.restaurantSettings as { notifyEmail?: string };
+    const to = await resolveStaffAlertEmail(db, n.restaurantId, settings);
+    if (!to) {
+      await markNotificationSkipped(db, n.id);
+      return;
+    }
+
+    const content = buildStaffAlertEmail({
+      type: n.type,
+      restaurantName: n.restaurantName,
+      restaurantTimezone: n.restaurantTimezone,
+      startsAt: n.startsAt,
+      partySize: n.partySize,
+      customerName: n.customerName,
+      customerPhone: n.customerPhone,
+    });
+
+    await sender.send({ to, ...content });
+    await markNotificationSent(db, n.id);
+  } catch (err) {
+    console.error(`[worker] fallo enviando aviso al staff ${n.id}:`, err);
+    await recordNotificationFailure(db, n.id, n.attempts);
+  }
+}
+
 async function processDueNotifications(db: ReturnType<typeof drizzle<typeof schema>>) {
   const due = await findDueNotifications(db);
   if (due.length === 0) return;
 
   const sender = getEmailSender();
   for (const n of due) {
+    if (n.type === "staff_new" || n.type === "staff_cancelled") {
+      await sendStaffAlert(db, sender, { ...n, type: n.type });
+      continue;
+    }
+
     if (!n.customerEmail) {
       await markNotificationSkipped(db, n.id);
       continue;

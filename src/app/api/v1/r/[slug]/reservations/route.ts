@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db/client";
 import { getRestaurantBySlug } from "@/db/restaurant";
 import { findOrCreateCustomer } from "@/db/customer";
-import { scheduleReservationNotifications } from "@/db/notification";
+import { scheduleReservationNotifications, scheduleStaffAlert } from "@/db/notification";
 import { markWaitlistBooked } from "@/db/waitlist";
 import { createDinerSession } from "@/lib/auth/diner-session";
 import { isWithinBookingWindow } from "@/lib/availability";
@@ -70,6 +70,7 @@ export async function POST(request: Request, { params }: Params) {
     startsAt: result.reservation.startsAt.toISOString(),
     reminderHoursBefore: settings.reminderHoursBefore ?? 3,
   });
+  await scheduleStaffAlert(db, { reservationId: result.reservation.id, type: "staff_new" });
 
   // Si estaba anotado en lista de espera para este día, ya consiguió mesa por su cuenta.
   await markWaitlistBooked(db, {

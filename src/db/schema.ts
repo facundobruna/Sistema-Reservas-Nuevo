@@ -53,7 +53,16 @@ export const reservationStatusEnum = pgEnum("reservation_status", [
   "no_show",
 ]);
 export const reservationSourceEnum = pgEnum("reservation_source", ["web", "whatsapp", "manual"]);
-export const notificationTypeEnum = pgEnum("notification_type", ["confirmation", "reminder"]);
+export const notificationTypeEnum = pgEnum("notification_type", [
+  "confirmation",
+  "reminder",
+  // Avisos al restaurante (no al comensal) — nueva reserva o cancelación
+  // hechas por el comensal. No se usan para walk-ins/carga manual del panel:
+  // ahí el staff ya sabe, lo hizo él mismo. Reutilizan la misma cola/reintentos
+  // que confirmation/reminder, solo cambia el destinatario y el contenido.
+  "staff_new",
+  "staff_cancelled",
+]);
 export const notificationChannelEnum = pgEnum("notification_channel", ["email", "whatsapp"]);
 export const notificationStatusEnum = pgEnum("notification_status", ["scheduled", "sent", "failed"]);
 export const waitlistStatusEnum = pgEnum("waitlist_status", ["waiting", "notified", "booked", "expired"]);

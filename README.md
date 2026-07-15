@@ -120,6 +120,14 @@ El recordatorio incluye un link "confirmo que voy" y, tanto la confirmación com
 
 Confirmar por email no toca la máquina de estados — la reserva ya nace `confirmed` (flujo cero-fricción, sin aprobación manual), así que "confirmar" acá es una señal operativa aparte (`confirmedByDinerAt`) para que el restaurante sepa que el comensal reconfirmó que viene. La Agenda muestra un badge "Reconfirmó" junto al estado cuando está presente.
 
+### Avisos al restaurante (reserva nueva / cancelación)
+
+Cuando el **comensal** reserva o cancela por su cuenta, se agenda un email al restaurante (tipos `staff_new`/`staff_cancelled` en `notification`, misma cola y reintentos que confirmación/recordatorio). Va a `settings.notifyEmail` si está configurado en Configuración, y si no al email del `owner` (siempre existe, es obligatorio). Deliberadamente **no** se dispara en walk-ins ni reservas cargadas a mano desde el panel — ahí el staff ya sabe, lo hizo él mismo — ni tampoco al modificar una reserva (por dentro es "cancelar la vieja + reservar la nueva", pero avisar cancelación+nueva por lo que en realidad es una edición sería más confuso que útil; queda fuera de esta vuelta a propósito).
+
+### Feed de calendario del restaurante
+
+`/api/v1/r/{slug}/calendar.ics?token=...` — para suscribirse desde Google Calendar/Outlook/Apple Calendar y ver de un vistazo las reservas del restaurante (3 días atrás a 60 días adelante, sin canceladas/no-show). Es una ruta pública — la consultan directo los servidores del cliente de calendario, sin sesión — autenticada con un token firmado igual que los links de confirmar/cancelar, pero de vencimiento muy largo (pensado para durar suscripto indefinidamente). El link vive en Configuración → Calendario, con un botón para copiarlo y otro para **regenerarlo** (invalida el anterior al toque, subiendo `settings.calendarTokenVersion` — no hace falta rotar el secreto HMAC entero para invalidar un solo link).
+
 ## Facturación (Mercado Pago) y superadmin
 
 El pago es **siempre del restaurante hacia la plataforma** (suscripción B2B por usar el software) — no hay ningún flujo de pago del lado del comensal, eso sigue prohibido.
@@ -178,7 +186,8 @@ src/
     seating-unit.ts   # createCombo/updateCombo: seating_unit 'combo' + sus mesas enlazadas
     restaurant.ts     # getRestaurantBySlug
     onboarding.ts     # createRestaurantOnboarding: alta self-serve (restaurant + zona + turnos + owner) en una transacción
-    notification.ts   # scheduleReservationNotifications + findDue/markSent/markSkipped/recordFailure
+    notification.ts   # scheduleReservationNotifications + scheduleStaffAlert + findDue/markSent/markSkipped/recordFailure
+    calendar.ts        # getCalendarFeed: reservas activas en ventana rolling, para el feed iCal del restaurante
     waitlist.ts        # joinWaitlist (idempotente) + findActiveWaitingEntries/markNotified/markBooked/expirePast
     subscription.ts    # createTrialSubscription + evaluatePanelAccess (única fuente de verdad del bloqueo)
     audit.ts           # logAudit: toda acción de superadmin
@@ -189,7 +198,7 @@ src/
     admin/             # CRUD REST: zones, mesas, seating-units, services, shifts, exceptions, settings
                         # + reservations (agenda, walk-in, cambio de estado, reasignar mesa), customers (buscar + export CSV), stats
                         # + timeline (ocupación por mesa de un día) + mesa-blocks (bloquear/desbloquear una mesa)
-                        # + billing/ (estado de la suscripción, iniciar checkout)
+                        # + calendar-token/regenerate (invalida el link del feed iCal) + billing/ (suscripción, checkout)
     onboarding/        # POST público: alta self-serve de restaurante + owner, abre sesión
     superadmin/         # tenants (listar/detalle/suspender/reactivar/impersonar/feature-flags), stats (MRR/altas/churn)
     webhooks/mercadopago/ # Notificaciones de Mercado Pago sobre cambios de estado de una suscripción
@@ -199,7 +208,8 @@ src/
                         # suscripción no está al día
   app/onboarding/      # Wizard público de alta de restaurante (3 pasos)
   app/superadmin/      # login público + dashboard protegido (tenants, métricas, detalle de tenant)
-  app/api/v1/r/[slug]/             # GET público (info) · availability/ · reservations/ (+[id], modificar/cancelar) · waitlist/
+  app/api/v1/r/[slug]/             # GET público (info) · availability/ · reservations/ (+[id], modificar/cancelar) ·
+                                    # waitlist/ · calendar.ics (feed de calendario del restaurante, token en la URL)
   app/api/v1/auth/diner/            # magic-link (pedir) · verify (canjear)
   app/api/v1/me/reservations/       # Reservas del comensal logueado (todas las restaurantes)
   app/r/[slug]/                    # Wizard de reserva (el flujo del comensal) + CTA de lista de espera si no hay horarios
@@ -208,8 +218,9 @@ src/
     availability/    # computeAvailability + resolveSlot (puros, sin DB) + loadAvailabilityInput (glue con Postgres)
     reservation/     # bookReservation: único punto de escritura, transaccional, best-fit + retry de deadlocks
                       # status-machine.ts: transiciones válidas de estado de una reserva
-                      # notification-email.ts / ics.ts: contenido de los emails y el adjunto .ics
+                      # notification-email.ts / staff-alert-email.ts / ics.ts: contenido de los emails y los .ics
                       # action-token.ts: token firmado de confirmar/cancelar por email, vence con la reserva
+                      # calendar-token.ts: token firmado del feed iCal, vencimiento largo + versión para invalidar
     email/           # Interfaz EmailSender (attachments incluidos; console-sender.ts local, resend-sender.ts prod)
     billing/         # mercadopago.ts: checkout, fetch de una suscripción, verificación de firma del webhook
     auth/            # signed-token.ts (HMAC compartido) · session.ts (staff) · diner-session.ts · magic-link.ts
@@ -217,8 +228,8 @@ src/
     i18n/            # Copy ES/EN + interpolate() para templates con {variables}
     validation/      # Schemas zod compartidos (admin.ts, auth.ts, booking.ts, phone.ts, onboarding.ts, superadmin.ts)
   jobs/
-    worker.ts        # Proceso pg-boss aparte (`pnpm worker`): confirmación/recordatorio por email, lista de espera,
-                      # no-show automático y reconciliación diaria de suscripciones contra Mercado Pago
+    worker.ts        # Proceso pg-boss aparte (`pnpm worker`): confirmación/recordatorio/avisos al staff por email,
+                      # lista de espera, no-show automático y reconciliación diaria de suscripciones contra Mercado Pago
 tests/
   unit/             # Motor de disponibilidad (lógica pura) — los 7 casos obligatorios de la spec + resolveSlot
   integration/      # bookReservation bajo concurrencia real contra Postgres
@@ -244,5 +255,7 @@ docker-compose.yml   # Postgres 17 local
 - **Branding por tenant:** `restaurant.settings.accentColor` pisa el acento en `/r/{slug}` (ver `src/app/r/[slug]/page.tsx`). Los tokens derivados del acento (`--accent-subtle`, `--ring`, etc.) usan `color-mix()` — y como `color-mix()` se resuelve en el punto donde CADA custom property se declara (no se "recalcula en cascada" al pisar solo `--accent` en un elemento anidado), hay que redeclarar todos los derivados juntos con el color literal del tenant, no alcanza con pisar `--accent` sola.
 - **Bloqueo de mesa, sin tocar el motor puro:** `mesa_block` bloquea una **mesa física** (no una seating unit), para que un combo que la incluya quede inhabilitado automáticamente — el motor ya chequea cada mesa de una unidad una por una. `loadAvailabilityInput` traduce cada bloqueo en una reserva sintética que ocupa esa mesa el día local completo (`partySize:0`, para no distorsionar el pacing); `computeAvailability`/`isUnitFree` no necesitaron ningún cambio, ya sabían tratar "mesa ocupada". Como es una restricción física, no una política de autoservicio, se resuelve en la capa compartida que usan tanto el comensal como `bookReservation` — a diferencia de la ventana de reserva/tope de grupo de M13, que son online-only.
 - **Bug real que encontró esta feature — `resolveSlot` no pre-filtraba por ocupación:** antes de M14, `resolveSlot` solo pre-chequeaba `isUnitFree` cuando había `bufferMin > 0`; para el resto confiaba en que el `EXCLUDE` de Postgres (`sin_solape`) rechazara cualquier solapamiento real al intentar el insert. Eso es válido para una reserva real (tiene una fila en `reservation_mesa` que la base puede rechazar), pero un bloqueo de mesa es una ocupación sintética *sin ninguna fila real* — no hay ningún constraint que lo capture, así que `bookReservation` terminaba sentando una reserva nueva en una mesa bloqueada. Se corrigió haciendo que `resolveSlot` filtre siempre por `isUnitFree` antes de devolver las unidades candidatas. No afecta la garantía de concurrencia (el test de la unidad en disputa sigue pasando): el filtro usa una foto de `activeReservations` leída en ese instante, así que dos requests concurrentes por la misma mesa real siguen viéndola libre en su foto y siguen dependiendo del `EXCLUDE` de la base para desempatar — el pre-filtro solo evita intentar una unidad obviamente tomada (incluidos los bloqueos, que no tienen otra forma de ser detectados).
+- **Avisos al staff, mismo motor que confirmación/recordatorio:** `staff_new`/`staff_cancelled` son dos tipos más de `notification`, no un sistema aparte — se agendan para "ahora" (igual que la confirmación) y el worker los procesa en la misma pasada, con los mismos reintentos/`failed`. Se agendan desde los route handlers del comensal (POST reservar, los dos caminos de cancelar), nunca desde `bookReservation`/`cancelReservation` — esas funciones no saben ni les importa quién las llamó, la decisión de "esto amerita avisarle al restaurante" es del caller, no del motor de reservas.
+- **Token del feed de calendario, mismo primitivo que los links de email, pensado para durar:** `encodeSignedToken` exige un `exp` numérico (no hay modo "sin vencimiento"), así que el token del feed iCal usa una fecha 50 años en el futuro en vez de inventar un segundo mecanismo de firma solo para este caso. La invalidación ("regenerar link") no rota el secreto `AUTH_SECRET` (afectaría todos los tokens de la app) ni guarda el token en la base — solo sube `settings.calendarTokenVersion`, incluido en el payload firmado; el feed lo compara contra el valor actual y basta con que no coincida para rechazarlo.
 - **Links de acción por email, `GET` seguro vs `POST` destructivo:** confirmar (no destructivo) ejecuta directo en el `GET` del link; cancelar (destructivo) nunca ejecuta en un `GET` — requiere aterrizar en una página intermedia y un clic explícito que dispara el `POST`. La razón concreta es que clientes de email y escaneres de seguridad pre-visitan links automáticamente apenas llega el mail, y eso cancelaría reservas solas si "cancelar" fuera un simple `GET`. El endpoint de cancelar reutiliza 100% `cancelReservation` — ninguna lógica de negocio nueva, solo el camino de entrada cambia.
 - **Reglas de reserva online son un filtro de la capa de caller, no del motor:** igual que `isPast`, la ventana de anticipación (`minAdvanceMinutes`/`maxAdvanceDays`) se implementa como un filtro aparte (`src/lib/availability/now-filter.ts`) aplicado sobre el resultado de `computeAvailability`, que sigue sin ningún concepto de "ahora" ni de reglas de negocio por tenant. El tope de grupo (`maxOnlinePartySize`) y la ventana se chequean explícitamente en los route handlers del flujo del comensal (creación y modificación), nunca dentro de `bookReservation` — a diferencia de `isPast`, que sí es universal, estas dos son reglas del autoservicio online exclusivamente, y un walk-in/reserva manual del panel no debe verse limitado por algo que el propio staff está decidiendo a mano.

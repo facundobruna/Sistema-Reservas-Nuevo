@@ -153,10 +153,13 @@ export type SettingsInput = {
     maxOnlinePartySize?: number | null;
     largeGroupPhone?: string;
     autoNoShowMinutes?: number | null;
+    notifyEmail?: string;
   };
 };
 
-async function fetchSettings(): Promise<{ restaurant: Restaurant }> {
+type SettingsResponse = { restaurant: Restaurant; ownerEmail: string | null; calendarUrl: string };
+
+async function fetchSettings(): Promise<SettingsResponse> {
   const res = await fetch("/api/v1/admin/settings");
   if (!res.ok) throw new Error("request_failed");
   return res.json();
@@ -175,6 +178,18 @@ export const useUpdateSettings = () => {
       });
       if (!res.ok) throw new Error("request_failed");
       return res.json() as Promise<{ restaurant: Restaurant }>;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }),
+  });
+};
+
+export const useRegenerateCalendarToken = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/v1/admin/calendar-token/regenerate", { method: "POST" });
+      if (!res.ok) throw new Error("request_failed");
+      return res.json() as Promise<{ calendarUrl: string }>;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }),
   });

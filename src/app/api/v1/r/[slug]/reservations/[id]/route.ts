@@ -5,7 +5,7 @@ import { db } from "@/db/client";
 import { reservation, type restaurant as restaurantTable } from "@/db/schema";
 import { getRestaurantBySlug } from "@/db/restaurant";
 import { cancelReservation } from "@/db/reservation";
-import { scheduleReservationNotifications } from "@/db/notification";
+import { scheduleReservationNotifications, scheduleStaffAlert } from "@/db/notification";
 import { markWaitlistBooked } from "@/db/waitlist";
 import { getDinerSession } from "@/lib/auth/diner-session";
 import { isWithinBookingWindow } from "@/lib/availability";
@@ -121,6 +121,7 @@ export async function PATCH(request: Request, { params }: Params) {
 
   if (parsed.data.status === "cancelled") {
     const cancelled = await cancelReservation(db, result.reservation.restaurantId, id);
+    if (cancelled) await scheduleStaffAlert(db, { reservationId: cancelled.id, type: "staff_cancelled" });
     return NextResponse.json({ reservation: cancelled });
   }
 
