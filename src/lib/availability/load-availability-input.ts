@@ -3,6 +3,7 @@ import { DateTime } from "luxon";
 import type { db as dbClient } from "@/db/client";
 import {
   mesa,
+  mesaBlock,
   reservation,
   reservationMesa,
   scheduleException,
@@ -30,7 +31,7 @@ export async function loadAvailabilityInput(
   const dayStart = DateTime.fromISO(date, { zone: timezone }).startOf("day");
   const dayEnd = dayStart.plus({ days: 1 });
 
-  const [shiftRows, unitRows, unitMesaRows, exceptionRows, reservationRows] = await Promise.all([
+  const [shiftRows, unitRows, unitMesaRows, exceptionRows, reservationRows, blockRows] = await Promise.all([
     db.select().from(shift).where(eq(shift.restaurantId, restaurantId)),
     db
       .select()
@@ -67,6 +68,10 @@ export async function loadAvailabilityInput(
           gt(reservation.endsAt, dayStart.toJSDate()),
         ),
       ),
+    db
+      .select({ mesaId: mesaBlock.mesaId })
+      .from(mesaBlock)
+      .where(and(eq(mesaBlock.restaurantId, restaurantId), eq(mesaBlock.date, date))),
   ]);
 
   const mesaIdsByUnit = new Map<string, { zoneId: string; mesaIds: string[] }>();
@@ -110,6 +115,16 @@ export async function loadAvailabilityInput(
 
   const exceptionRow = exceptionRows[0];
 
+  // Una mesa bloqueada se modela como si estuviera ocupada el día local entero —
+  // el motor (isUnitFree) ya sabe tratar eso, sin necesitar ningún concepto nuevo.
+  // partySize:0 porque no son cubiertos reales, para no distorsionar el pacing.
+  const blockedReservations: ActiveReservationInput[] = blockRows.map((b) => ({
+    mesaIds: [b.mesaId],
+    startsAt: dayStart.toISO()!,
+    endsAt: dayEnd.toISO()!,
+    partySize: 0,
+  }));
+
   return {
     date,
     partySize,
@@ -117,7 +132,7 @@ export async function loadAvailabilityInput(
     timezone,
     shifts: shiftRows,
     seatingUnits,
-    activeReservations: Array.from(reservationsById.values()),
+    activeReservations: [...Array.from(reservationsById.values()), ...blockedReservations],
     exception: exceptionRow
       ? { kind: exceptionRow.kind, startTime: exceptionRow.startTime, endTime: exceptionRow.endTime }
       : null,

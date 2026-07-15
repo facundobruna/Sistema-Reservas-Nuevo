@@ -8,6 +8,7 @@ import {
   CalendarOff,
   Clock3,
   CreditCard,
+  GanttChartSquare,
   LayoutGrid,
   MapPinned,
   Settings,
@@ -20,6 +21,7 @@ import { cn } from "@/lib/utils";
 
 const OPERATION_ITEMS = [
   { href: "", label: "Agenda", icon: CalendarCheck },
+  { href: "/timeline", label: "Mapa de mesas", icon: GanttChartSquare },
   { href: "/share", label: "Compartir", icon: Share2 },
   { href: "/customers", label: "Comensales", icon: Users },
   { href: "/stats", label: "Analíticas", icon: BarChart3 },

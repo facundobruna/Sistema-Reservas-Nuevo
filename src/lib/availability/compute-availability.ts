@@ -164,9 +164,9 @@ export function computeAvailability(input: ComputeAvailabilityInput): Availabili
 export type ResolvedSlot = {
   serviceId: string;
   endsAt: string;
-  /** Unidades elegibles por capacidad/zona, en orden best-fit. NO están pre-chequeadas
-   *  contra solapamiento — bookReservation las prueba una por una y deja que el
-   *  constraint `sin_solape` de Postgres sea el árbitro final bajo concurrencia. */
+  /** Unidades elegibles por capacidad/zona/ocupación, en orden best-fit, según la foto de
+   *  `activeReservations` leída al resolver. bookReservation las prueba una por una y deja
+   *  que el constraint `sin_solape` de Postgres sea el árbitro final bajo concurrencia real. */
   eligibleUnits: SeatingUnitInput[];
 };
 
@@ -202,16 +202,21 @@ export function resolveSlot(
     if (!pacingAllows(effectiveShift, match, partySize, reservations)) continue;
 
     const endsAt = match.plus({ minutes: effectiveShift.turnDurationMin });
-    // El EXCLUDE de Postgres (sin_solape) es el árbitro final del solapamiento real,
-    // así que acá normalmente no hace falta pre-filtrar por eso (ver el comment de
-    // ResolvedSlot). El buffer es distinto: no está en el constraint de la base, es
-    // una regla extra del motor — si no se filtra acá, bookReservation podría sentar
-    // una reserva nueva dentro del margen de limpieza de otra. Con bufferMin=0 (el
-    // default de todo turno existente) el comportamiento es idéntico al de siempre.
-    const unitsForBooking =
-      effectiveShift.bufferMin > 0
-        ? eligibleUnits.filter((unit) => isUnitFree(unit, match, endsAt, reservations, effectiveShift.bufferMin))
-        : eligibleUnits;
+    // Para un solapamiento real entre dos reservas, el EXCLUDE de Postgres
+    // (sin_solape) es el árbitro final bajo concurrencia — este filtro con la foto
+    // de `reservations` leída recién es solo una optimización para no intentar una
+    // unidad obviamente tomada, nunca reemplaza al constraint (dos requests
+    // concurrentes que lean la misma foto igual se resuelven en la base). Pero hay
+    // ocupación que NO tiene una fila real en reservation_mesa para que la base
+    // pueda rechazar — un bloqueo de mesa (mesa_block) se modela como una reserva
+    // sintética de todo el día (ver loadAvailabilityInput) precisamente para que
+    // este filtro la excluya acá; sin él, bookReservation podría sentar una reserva
+    // nueva en una mesa bloqueada, porque no hay ningún constraint de base que lo
+    // impida. El buffer entre sentadas tiene el mismo problema (tampoco es un
+    // constraint de la base).
+    const unitsForBooking = eligibleUnits.filter((unit) =>
+      isUnitFree(unit, match, endsAt, reservations, effectiveShift.bufferMin),
+    );
 
     return {
       serviceId: shift.serviceId,

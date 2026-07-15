@@ -70,6 +70,10 @@ La portada del panel es la **Agenda** (`/admin/{slug}`): lista de reservas del d
 
 `pending → confirmed → seated → completed`, con `cancelled`/`no_show` alcanzables desde cualquier estado anterior a `completed` (`src/lib/reservation/status-machine.ts`, transiciones inválidas se rechazan). Cancelar o marcar no-show libera la mesa al toque (borra las filas de `reservation_mesa`, la unidad vuelve a estar disponible); completar/no-show actualizan `visit_count`/`no_show_count` del cliente.
 
+### Mapa de mesas
+
+`/admin/{slug}/timeline` — grilla mesa × hora del día elegido: cada fila es una mesa (agrupadas visualmente por zona), el eje horizontal es la ventana horaria de los turnos que aplican ese día de semana, y cada reserva se dibuja como un bloque en la fila de su mesa (un combo ocupa todas sus mesas, cada una en su propia fila — `reservation_mesa` ya guarda la ocupación a nivel mesa, no hace falta resolver el combo de nuevo). Es solo visualización: para cambiar un estado o reasignar mesa se sigue usando la Agenda, no se duplica esa lógica acá. Además de mirar el salón de un vistazo, desde ahí se puede **bloquear una mesa para ese día puntual** (rota, evento privado) con un motivo opcional, y desbloquearla — bloquear no cancela reservas que ya estén cargadas en esa mesa ese día, solo impide asignarle una nueva.
+
 ### Compartí tu reserva
 
 `/admin/{slug}/share` — todo lo necesario para distribuir el link, calculado en el cliente a partir del restaurante (sin backend propio): el link branded `/r/{slug}` copiable, un texto de WhatsApp con el link ya interpolado (para pegar como respuesta automática en WhatsApp Business, más un botón que abre `wa.me` con el mensaje precargado — **no** se integra la Cloud API de Meta ni se arma un bot), un código QR descargable como PNG (generado 100% local con la librería `qrcode`, sin servicios externos) y un snippet de botón embebible (HTML/CSS autocontenido, con el acento del tenant) para pegar en la web propia del restaurante.
@@ -163,12 +167,14 @@ Tres ajustes finos a `computeAvailability`, siempre como lógica pura y testeada
 src/
   app/            # Next.js App Router
   db/
-    schema.ts       # Esquema completo en Drizzle (enums + 14 tablas)
+    schema.ts       # Esquema completo en Drizzle (enums + 19 tablas)
     migrations/      # SQL: extensiones, tablas, constraint sin_solape (EXCLUDE)
     client.ts        # Cliente Drizzle (pg Pool)
     migrate.ts        # Corredor de migraciones
     seed.ts           # Seed de demo
     mesa.ts            # createMesa/updateMesa/deleteMesa: mantienen su seating_unit 'single' en sincro
+    mesa-block.ts      # createMesaBlock/deleteMesaBlock: bloquear/desbloquear una mesa física para una fecha
+    timeline.ts        # getTimeline: ocupación por mesa + bloqueos de un día, para la grilla del panel
     seating-unit.ts   # createCombo/updateCombo: seating_unit 'combo' + sus mesas enlazadas
     restaurant.ts     # getRestaurantBySlug
     onboarding.ts     # createRestaurantOnboarding: alta self-serve (restaurant + zona + turnos + owner) en una transacción
@@ -182,13 +188,15 @@ src/
     auth/superadmin/    # login / logout (sesión separada de staff)
     admin/             # CRUD REST: zones, mesas, seating-units, services, shifts, exceptions, settings
                         # + reservations (agenda, walk-in, cambio de estado, reasignar mesa), customers (buscar + export CSV), stats
+                        # + timeline (ocupación por mesa de un día) + mesa-blocks (bloquear/desbloquear una mesa)
                         # + billing/ (estado de la suscripción, iniciar checkout)
     onboarding/        # POST público: alta self-serve de restaurante + owner, abre sesión
     superadmin/         # tenants (listar/detalle/suspender/reactivar/impersonar/feature-flags), stats (MRR/altas/churn)
     webhooks/mercadopago/ # Notificaciones de Mercado Pago sobre cambios de estado de una suscripción
   app/admin/[slug]/    # Panel: login público + billing (fuera del gating, para poder pagar) + rutas protegidas
-                        # (grupo (protected)): agenda (portada), share, zones, mesas, seating-units, services, shifts,
-                        # exceptions, customers, stats, settings — bloqueadas si la suscripción no está al día
+                        # (grupo (protected)): agenda (portada), timeline (mapa de mesas), share, zones, mesas,
+                        # seating-units, services, shifts, exceptions, customers, stats, settings — bloqueadas si la
+                        # suscripción no está al día
   app/onboarding/      # Wizard público de alta de restaurante (3 pasos)
   app/superadmin/      # login público + dashboard protegido (tenants, métricas, detalle de tenant)
   app/api/v1/r/[slug]/             # GET público (info) · availability/ · reservations/ (+[id], modificar/cancelar) · waitlist/
@@ -234,5 +242,7 @@ docker-compose.yml   # Postgres 17 local
 - **Facturación separada del dominio operativo:** `subscription` es una tabla aparte de `restaurant` a propósito (no columnas sueltas ahí) — billing es un concern de la plataforma, no algo que el restaurante configura. `evaluatePanelAccess()` (`src/db/subscription.ts`) es la única función que decide si el panel se bloquea; se llama una sola vez, desde el layout protegido — nunca desde el lado del comensal.
 - **Ambigüedad de fecha en horarios de madrugada:** al permitir turnos que cruzan medianoche apareció un bug real: `bookReservation` inferís la `date` a re-validar a partir del propio instante (`startsAt` en el timezone del restaurante), pero un horario de madrugada puede pertenecer al turno de HOY (uno que arranca temprano) o ser la cola de un turno de AYER que cruzó la medianoche — `dayOfWeek` queda anclado al día en que el turno arranca, no al día calendario del instante. La reserva se probaba contra la fecha equivocada y fallaba con `slot_unavailable` pese a que el horario sí estaba disponible. Se resolvió probando las dos fechas candidatas (la del instante y la anterior) antes de dar por no disponible.
 - **Branding por tenant:** `restaurant.settings.accentColor` pisa el acento en `/r/{slug}` (ver `src/app/r/[slug]/page.tsx`). Los tokens derivados del acento (`--accent-subtle`, `--ring`, etc.) usan `color-mix()` — y como `color-mix()` se resuelve en el punto donde CADA custom property se declara (no se "recalcula en cascada" al pisar solo `--accent` en un elemento anidado), hay que redeclarar todos los derivados juntos con el color literal del tenant, no alcanza con pisar `--accent` sola.
+- **Bloqueo de mesa, sin tocar el motor puro:** `mesa_block` bloquea una **mesa física** (no una seating unit), para que un combo que la incluya quede inhabilitado automáticamente — el motor ya chequea cada mesa de una unidad una por una. `loadAvailabilityInput` traduce cada bloqueo en una reserva sintética que ocupa esa mesa el día local completo (`partySize:0`, para no distorsionar el pacing); `computeAvailability`/`isUnitFree` no necesitaron ningún cambio, ya sabían tratar "mesa ocupada". Como es una restricción física, no una política de autoservicio, se resuelve en la capa compartida que usan tanto el comensal como `bookReservation` — a diferencia de la ventana de reserva/tope de grupo de M13, que son online-only.
+- **Bug real que encontró esta feature — `resolveSlot` no pre-filtraba por ocupación:** antes de M14, `resolveSlot` solo pre-chequeaba `isUnitFree` cuando había `bufferMin > 0`; para el resto confiaba en que el `EXCLUDE` de Postgres (`sin_solape`) rechazara cualquier solapamiento real al intentar el insert. Eso es válido para una reserva real (tiene una fila en `reservation_mesa` que la base puede rechazar), pero un bloqueo de mesa es una ocupación sintética *sin ninguna fila real* — no hay ningún constraint que lo capture, así que `bookReservation` terminaba sentando una reserva nueva en una mesa bloqueada. Se corrigió haciendo que `resolveSlot` filtre siempre por `isUnitFree` antes de devolver las unidades candidatas. No afecta la garantía de concurrencia (el test de la unidad en disputa sigue pasando): el filtro usa una foto de `activeReservations` leída en ese instante, así que dos requests concurrentes por la misma mesa real siguen viéndola libre en su foto y siguen dependiendo del `EXCLUDE` de la base para desempatar — el pre-filtro solo evita intentar una unidad obviamente tomada (incluidos los bloqueos, que no tienen otra forma de ser detectados).
 - **Links de acción por email, `GET` seguro vs `POST` destructivo:** confirmar (no destructivo) ejecuta directo en el `GET` del link; cancelar (destructivo) nunca ejecuta en un `GET` — requiere aterrizar en una página intermedia y un clic explícito que dispara el `POST`. La razón concreta es que clientes de email y escaneres de seguridad pre-visitan links automáticamente apenas llega el mail, y eso cancelaría reservas solas si "cancelar" fuera un simple `GET`. El endpoint de cancelar reutiliza 100% `cancelReservation` — ninguna lógica de negocio nueva, solo el camino de entrada cambia.
 - **Reglas de reserva online son un filtro de la capa de caller, no del motor:** igual que `isPast`, la ventana de anticipación (`minAdvanceMinutes`/`maxAdvanceDays`) se implementa como un filtro aparte (`src/lib/availability/now-filter.ts`) aplicado sobre el resultado de `computeAvailability`, que sigue sin ningún concepto de "ahora" ni de reglas de negocio por tenant. El tope de grupo (`maxOnlinePartySize`) y la ventana se chequean explícitamente en los route handlers del flujo del comensal (creación y modificación), nunca dentro de `bookReservation` — a diferencia de `isPast`, que sí es universal, estas dos son reglas del autoservicio online exclusivamente, y un walk-in/reserva manual del panel no debe verse limitado por algo que el propio staff está decidiendo a mano.

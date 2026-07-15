@@ -240,6 +240,30 @@ export const scheduleException = pgTable(
   (table) => [index("schedule_exception_restaurant_id_date_idx").on(table.restaurantId, table.date)],
 );
 
+// Bloquea una mesa física (no una seating_unit) para un día puntual — rota, evento
+// privado, etc. Un combo que incluye esa mesa queda inhabilitado automáticamente,
+// porque el motor de disponibilidad ya chequea CADA mesa de una unidad (ver
+// loadAvailabilityInput, que traduce esto en una reserva sintética de todo el día).
+export const mesaBlock = pgTable(
+  "mesa_block",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    restaurantId: uuid("restaurant_id")
+      .notNull()
+      .references(() => restaurant.id, { onDelete: "cascade" }),
+    mesaId: uuid("mesa_id")
+      .notNull()
+      .references(() => mesa.id, { onDelete: "cascade" }),
+    date: date("date").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("mesa_block_mesa_id_date_key").on(table.mesaId, table.date),
+    index("mesa_block_restaurant_id_date_idx").on(table.restaurantId, table.date),
+  ],
+);
+
 export const customer = pgTable("customer", {
   id: uuid("id").primaryKey().defaultRandom(),
   // E.164, identidad global del comensal (no se scopea por restaurant_id).

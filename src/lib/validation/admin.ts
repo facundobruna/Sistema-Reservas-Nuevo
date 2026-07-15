@@ -201,3 +201,15 @@ export const statsQuerySchema = z.object({
   from: dateString,
   to: dateString,
 });
+
+// --- Timeline (mesa x hora) + bloqueo de mesa por fecha -----------------------
+
+export const timelineQuerySchema = z.object({
+  date: dateString,
+});
+
+export const mesaBlockCreateSchema = z.object({
+  mesaId: z.string().uuid(),
+  date: dateString,
+  note: z.string().trim().max(200).optional(),
+});

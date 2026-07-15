@@ -293,3 +293,32 @@ async function fetchStats(from: string, to: string): Promise<{ from: string; to:
 
 export const useStats = (from: string, to: string) =>
   useQuery({ queryKey: ["stats", from, to], queryFn: () => fetchStats(from, to) });
+
+// --- Timeline (mesa x hora) + bloqueo de mesa por fecha ------------------------
+
+export type TimelineOccupied = {
+  mesaId: string;
+  reservationId: string;
+  startsAt: string;
+  endsAt: string;
+  status: ReservationStatus;
+  partySize: number;
+  customerName: string | null;
+};
+
+export type MesaBlock = { id: string; mesaId: string; note: string | null };
+
+async function fetchTimeline(date: string): Promise<{ occupied: TimelineOccupied[]; blocks: MesaBlock[] }> {
+  const res = await fetch(`/api/v1/admin/timeline?date=${date}`);
+  if (!res.ok) throw new Error("request_failed");
+  return res.json();
+}
+
+export const useTimeline = (date: string) =>
+  useQuery({ queryKey: ["timeline", date], queryFn: () => fetchTimeline(date) });
+
+export type MesaBlockInput = { mesaId: string; date: string; note?: string };
+
+export const useCreateMesaBlock = () =>
+  useCreateResource<MesaBlockInput, { block: MesaBlock }>("timeline", "/admin/mesa-blocks");
+export const useDeleteMesaBlock = () => useDeleteResource("timeline", "/admin/mesa-blocks");
