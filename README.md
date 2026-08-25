@@ -1,4 +1,5 @@
-# Sistema de Reservas (UCC 2026)
+# Sistema de Reservas — Ingeniería del Software 3 (UCC 2026)
+
 El sistema de reservas más rápido y sin fricción del mercado: gestión de reservas para restaurantes, y nada más. Ver [prompt-maestro-desde-cero.md](./prompt-maestro-desde-cero.md) (fuente de verdad del producto) y [plan.md](./plan.md) (hoja de ruta de construcción).
 
 ## Stack
