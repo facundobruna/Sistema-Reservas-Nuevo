@@ -1,0 +1,1 @@
+ALTER TABLE "reservation" ADD COLUMN "confirmed_by_diner_at" timestamp with time zone;

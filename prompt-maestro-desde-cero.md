@@ -350,7 +350,7 @@ Con `pg-boss`: al confirmar, agendar confirmación (inmediata) y recordatorio (d
 
 Estas piezas son para operar el SaaS, no forman parte de la herramienta de reservas del restaurante y no cuentan como "gestión" que le choque:
 - **Onboarding self-serve**: el local se da de alta y queda operativo solo, con defaults inteligentes; al final obtiene link/QR/texto de WhatsApp/snippet.
-- **Facturación B2B con Stripe** (a los restaurantes; nunca toca el flujo del comensal; la regla "sin seña" del comensal sigue intacta).
+- **Facturación B2B con Mercado Pago** (a los restaurantes; nunca toca el flujo del comensal; la regla "sin seña" del comensal sigue intacta).
 - **Super-admin** (para vos): tenants, MRR/altas/churn, suspender/impersonar, feature flags; acceso restringido y auditado.
 
 ---
@@ -367,7 +367,7 @@ Estas piezas son para operar el SaaS, no forman parte de la herramienta de reser
 8. **Onboarding self-serve** + sección "Compartí tu reserva" (link, texto WhatsApp, QR, snippet).
 9. **Notificaciones** (worker pg-boss).
 10. **Mejoras del booking** (waitlist, modificar/cancelar, .ics).
-11. **SaaS-ops** (facturación Stripe, super-admin).
+11. **SaaS-ops** (facturación Mercado Pago, super-admin).
 12. **Detalles del motor** (medianoche, overbooking, buffer) — baja prioridad.
 
 Al cerrar cada milestone: compila, pasan los tests, ninguna pantalla parece template.

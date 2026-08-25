@@ -1,0 +1,83 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1783020563142,
+      "tag": "0000_extensions",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1783020591344,
+      "tag": "0001_tranquil_sphinx",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783020604311,
+      "tag": "0002_sin_solape_exclude_constraint",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1783111748442,
+      "tag": "0003_cleanup_orphaned_single_seating_unit",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1783286940814,
+      "tag": "0004_wild_human_torch",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1783428481617,
+      "tag": "0005_milky_gambit",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784035532415,
+      "tag": "0006_worried_dust",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784047898294,
+      "tag": "0007_nasty_psynapse",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784064861911,
+      "tag": "0008_brainy_sabra",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784119497492,
+      "tag": "0009_melted_penance",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784122703650,
+      "tag": "0010_mysterious_the_fury",
+      "breakpoints": true
+    }
+  ]
+}
