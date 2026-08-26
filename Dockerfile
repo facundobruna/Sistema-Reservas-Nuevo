@@ -47,6 +47,14 @@ RUN pnpm build
 FROM node:22-alpine AS migrator
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
+
+# Etiquetas OCI: estándar abierto de metadatos de imagen. `image.source` es la
+# que vincula el paquete publicado con este repositorio en GitHub — sin ella,
+# ghcr.io no sabe de dónde salió la imagen y la opción "Inherit access from
+# source repository" de la cuenta no tiene de qué heredar.
+LABEL org.opencontainers.image.source="https://github.com/facundobruna/Sistema-Reservas-Nuevo"
+LABEL org.opencontainers.image.description="Sistema de Reservas — migraciones de base de datos"
+LABEL org.opencontainers.image.licenses="MIT"
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json tsconfig.json ./
 COPY src ./src
@@ -64,6 +72,14 @@ CMD ["node_modules/.bin/tsx", "src/db/migrate.ts"]
 FROM node:22-alpine AS runner
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
+
+# Etiquetas OCI: estándar abierto de metadatos de imagen. `image.source` es la
+# que vincula el paquete publicado con este repositorio en GitHub — sin ella,
+# ghcr.io no sabe de dónde salió la imagen y la opción "Inherit access from
+# source repository" de la cuenta no tiene de qué heredar.
+LABEL org.opencontainers.image.source="https://github.com/facundobruna/Sistema-Reservas-Nuevo"
+LABEL org.opencontainers.image.description="Sistema de Reservas — aplicación (Next.js 16 + PostgreSQL)"
+LABEL org.opencontainers.image.licenses="MIT"
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1

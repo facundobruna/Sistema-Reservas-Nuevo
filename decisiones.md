@@ -265,8 +265,6 @@ dos comandos y no uno.
 
 ### Declaración de uso de IA
 
-<!-- Completar. Base de lo que corresponde declarar: -->
-
 Usé **Claude (Cowork)** para redactar el `Dockerfile`, el `.dockerignore`, los dos archivos de
 compose, el `.env.example`, la sección de arranque del `README.md` y el borrador de esta sección,
 a partir de una lectura del código de la app y del enunciado del TP.

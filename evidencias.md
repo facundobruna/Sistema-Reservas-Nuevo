@@ -52,282 +52,51 @@ Semver: `MAJOR.MINOR.PATCH` — primera versión estable de la entrega.
 
 ### 1. `docker compose up -d` desde cero y el sistema funcionando
 
-![docker compose up desde cero](img/tp2-compose-up.png)
-docker compose up -d --build
+Arranque completo siguiendo el README en una máquina limpia: `cp .env.example .env` y
+`docker compose up -d --build`.
+
+```text
 [+] down 4/4
- ✔ Container sistema-reservas-app-1     Removed                                                                                                                                 0.1s
- ✔ Container sistema-reservas-migrate-1 Removed                                                                                                                                 0.3s
- ✔ Container sistema-reservas-db-1      Removed                                                                                                                                 0.6s
- ✔ Network sistema-reservas_default     Removed                                                                                                                                 0.4s
-#1 [internal] load local bake definitions
-#1 reading from stdin 1.08kB done
-#1 DONE 0.0s
-
-#2 [migrate internal] load build definition from Dockerfile
-#2 transferring dockerfile: 4.18kB 0.0s done
-#2 DONE 0.0s
-
-#3 [migrate] resolve image config for docker-image://docker.io/docker/dockerfile:1
-#3 DONE 2.6s
-
-#4 [app] docker-image://docker.io/docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
-#4 resolve docker.io/docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32 0.1s done
-#4 CACHED
-
-#5 [app internal] load metadata for docker.io/library/node:22-alpine
-#5 DONE 4.3s
-
-#6 [migrate internal] load .dockerignore
-#6 transferring context: 791B 0.0s done
-#6 DONE 0.0s
-
-#7 [app internal] load build context
-#7 DONE 0.0s
-
-#8 [migrate deps 1/6] FROM docker.io/library/node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
-#8 resolve docker.io/library/node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 0.1s done
-#8 DONE 0.1s
-
-#9 [migrate deps 2/6] RUN apk add --no-cache libc6-compat
-#9 CACHED
-
-#10 [migrate runner 3/7] WORKDIR /app
-#10 CACHED
-
-#9 [app deps 2/6] RUN apk add --no-cache libc6-compat
-#9 CACHED
-
-#11 [migrate internal] load build context
-#11 transferring context: 17.58kB 0.1s done
-#11 DONE 0.2s
-
-#12 [migrate deps 5/6] COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-#12 CACHED
-
-#13 [migrate deps 3/6] RUN corepack enable
-#13 CACHED
-
-#14 [migrate deps 4/6] WORKDIR /app
-#14 CACHED
-
-#15 [migrate deps 6/6] RUN pnpm install --frozen-lockfile
-#15 CACHED
-
-#7 [app internal] load build context
-#7 transferring context: 39.97kB 0.1s done
-#7 DONE 0.2s
-
-#15 [app deps 6/6] RUN pnpm install --frozen-lockfile
-#15 CACHED
-
-#13 [app deps 3/6] RUN corepack enable
-#13 CACHED
-
-#14 [app deps 4/6] WORKDIR /app
-#14 CACHED
-
-#16 [app deps 5/6] COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-#16 CACHED
-
-#17 [app deps 6/6] RUN pnpm install --frozen-lockfile
-#17 CACHED
-
-#18 [app builder 5/7] COPY --from=deps /app/node_modules ./node_modules
-#18 CACHED
-
-#19 [app builder 6/7] COPY . .
-#19 DONE 0.2s
-
-#20 [migrate migrator 4/6] COPY --from=deps /app/node_modules ./node_modules
-#20 ...
-
-#21 [app builder 7/7] RUN pnpm build
-#21 1.107 ! Corepack is about to download https://registry.npmjs.org/pnpm/-/pnpm-11.24.0.tgz
-#21 3.710 $ next build
-#21 4.466 ▲ Next.js 16.2.9 (Turbopack)
-#21 4.467 
-#21 4.526   Creating an optimized production build ...
-#21 11.52 ✓ Compiled successfully in 6.6s
-#21 11.54   Running TypeScript ...
-#21 ...
-
-#20 [migrate migrator 4/6] COPY --from=deps /app/node_modules ./node_modules
-#20 DONE 20.3s
-
-#22 [migrate migrator 5/6] COPY package.json tsconfig.json ./
-#22 DONE 0.4s
-
-#21 [app builder 7/7] RUN pnpm build
-#21 ...
-
-#23 [migrate migrator 6/6] COPY src ./src
-#23 DONE 0.1s
-
-#24 [migrate] exporting to image
-#24 exporting layers
-#24 ...
-
-#21 [app builder 7/7] RUN pnpm build
-#21 23.36   Finished TypeScript in 11.8s ...
-#21 23.37   Collecting page data using 19 workers ...
-#21 25.32   Generating static pages using 19 workers (0/36) ...
-#21 25.45   Generating static pages using 19 workers (9/36) 
-#21 25.58   Generating static pages using 19 workers (18/36) 
-#21 25.63   Generating static pages using 19 workers (27/36) 
-#21 26.03 ✓ Generating static pages using 19 workers (36/36) in 707ms
-#21 26.04   Finalizing page optimization ...
-#21 26.99 
-#21 27.00 Route (app)
-#21 27.00 ┌ ○ /
-#21 27.00 ├ ○ /_not-found
-#21 27.00 ├ ƒ /admin/[slug]
-#21 27.00 ├ ƒ /admin/[slug]/billing
-#21 27.00 ├ ƒ /admin/[slug]/combos
-#21 27.00 ├ ƒ /admin/[slug]/customers
-#21 27.00 ├ ƒ /admin/[slug]/exceptions
-#21 27.00 ├ ƒ /admin/[slug]/login
-#21 27.00 ├ ƒ /admin/[slug]/mesas
-#21 27.00 ├ ƒ /admin/[slug]/services
-#21 27.00 ├ ƒ /admin/[slug]/settings
-#21 27.00 ├ ƒ /admin/[slug]/share
-#21 27.00 ├ ƒ /admin/[slug]/shifts
-#21 27.00 ├ ƒ /admin/[slug]/stats
-#21 27.00 ├ ƒ /admin/[slug]/timeline
-#21 27.00 ├ ƒ /admin/[slug]/zones
-#21 27.00 ├ ƒ /api/v1/admin/billing/status
-#21 27.00 ├ ƒ /api/v1/admin/billing/subscribe
-#21 27.00 ├ ƒ /api/v1/admin/calendar-token/regenerate
-#21 27.00 ├ ƒ /api/v1/admin/customers
-#21 27.00 ├ ƒ /api/v1/admin/customers/export
-#21 27.00 ├ ƒ /api/v1/admin/exceptions
-#21 27.00 ├ ƒ /api/v1/admin/exceptions/[id]
-#21 27.00 ├ ƒ /api/v1/admin/mesa-blocks
-#21 27.00 ├ ƒ /api/v1/admin/mesa-blocks/[id]
-#21 27.00 ├ ƒ /api/v1/admin/mesas
-#21 27.00 ├ ƒ /api/v1/admin/mesas/[id]
-#21 27.00 ├ ƒ /api/v1/admin/reservations
-#21 27.00 ├ ƒ /api/v1/admin/reservations/[id]
-#21 27.00 ├ ƒ /api/v1/admin/seating-units
-#21 27.00 ├ ƒ /api/v1/admin/seating-units/[id]
-#21 27.00 ├ ƒ /api/v1/admin/services
-#21 27.00 ├ ƒ /api/v1/admin/services/[id]
-#21 27.00 ├ ƒ /api/v1/admin/settings
-#21 27.00 ├ ƒ /api/v1/admin/shifts
-#21 27.00 ├ ƒ /api/v1/admin/shifts/[id]
-#21 27.00 ├ ƒ /api/v1/admin/stats
-#21 27.00 ├ ƒ /api/v1/admin/timeline
-#21 27.00 ├ ƒ /api/v1/admin/zones
-#21 27.00 ├ ƒ /api/v1/admin/zones/[id]
-#21 27.00 ├ ƒ /api/v1/auth/diner/magic-link
-#21 27.00 ├ ƒ /api/v1/auth/diner/verify
-#21 27.00 ├ ƒ /api/v1/auth/staff/login
-#21 27.00 ├ ƒ /api/v1/auth/staff/logout
-#21 27.00 ├ ƒ /api/v1/auth/superadmin/login
-#21 27.00 ├ ƒ /api/v1/auth/superadmin/logout
-#21 27.00 ├ ƒ /api/v1/health
-#21 27.00 ├ ƒ /api/v1/me/reservations
-#21 27.00 ├ ƒ /api/v1/onboarding
-#21 27.00 ├ ƒ /api/v1/r/[slug]
-#21 27.00 ├ ƒ /api/v1/r/[slug]/availability
-#21 27.00 ├ ƒ /api/v1/r/[slug]/calendar.ics
-#21 27.00 ├ ƒ /api/v1/r/[slug]/reservations
-#21 27.00 ├ ƒ /api/v1/r/[slug]/reservations/[id]
-#21 27.00 ├ ƒ /api/v1/r/[slug]/reservations/[id]/cancel
-#21 27.00 ├ ƒ /api/v1/r/[slug]/reservations/[id]/confirm
-#21 27.00 ├ ƒ /api/v1/r/[slug]/waitlist
-#21 27.00 ├ ƒ /api/v1/superadmin/stats
-#21 27.00 ├ ƒ /api/v1/superadmin/tenants
-#21 27.00 ├ ƒ /api/v1/superadmin/tenants/[id]
-#21 27.00 ├ ƒ /api/v1/superadmin/tenants/[id]/feature-flags
-#21 27.00 ├ ƒ /api/v1/superadmin/tenants/[id]/impersonate
-#21 27.00 ├ ƒ /api/v1/superadmin/tenants/[id]/reactivate
-#21 27.00 ├ ƒ /api/v1/superadmin/tenants/[id]/suspend
-#21 27.00 ├ ƒ /api/v1/webhooks/mercadopago
-#21 27.00 ├ ○ /me
-#21 27.00 ├ ○ /onboarding
-#21 27.00 ├ ƒ /r/[slug]
-#21 27.00 ├ ƒ /r/[slug]/action-result
-#21 27.00 ├ ƒ /r/[slug]/reservations/[id]/cancel
-#21 27.00 ├ ○ /style-guide
-#21 27.00 ├ ƒ /superadmin
-#21 27.00 ├ ○ /superadmin/login
-#21 27.00 └ ƒ /superadmin/tenants/[id]
-#21 27.00 
-#21 27.00 
-#21 27.00 ○  (Static)   prerendered as static content
-#21 27.00 ƒ  (Dynamic)  server-rendered on demand
-#21 27.00 
-#21 DONE 27.2s
-
-#24 [migrate] exporting to image
-#24 ...
-
-#25 [app runner 4/7] RUN addgroup -S -g 1001 nodejs && adduser -S -u 1001 -G nodejs nextjs
-#25 CACHED
-
-#26 [app runner 5/7] COPY --from=builder --chown=nextjs:nodejs /app/public ./public
-#26 CACHED
-
-#27 [app runner 6/7] COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-#27 DONE 0.5s
-
-#24 [migrate] exporting to image
-#24 ...
-
-#28 [app runner 7/7] COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-#28 DONE 0.1s
-
-#29 [app] exporting to image
-#29 exporting layers
-#29 exporting layers 1.7s done
-#29 exporting manifest sha256:cfce68fae145f3a37d5884a5bff74a85d0e4c080627546fc8a3f602af49a7029 0.0s done
-#29 exporting config sha256:73129f9f315834c2c414189d31a4080df264a709fb49c68f50314f8105a38699 0.0s done
-#29 exporting attestation manifest sha256:79e5b4ac3928c4e3b24b0e45860781a159595e007a17b3e3e6fc9d887fca472c 0.0s done
-#29 exporting manifest list sha256:0cf0c98b7d2f90613c4b5a4c8265e02bf4787dec434590ddeca3c1ffa9671bd9
-#29 exporting manifest list sha256:0cf0c98b7d2f90613c4b5a4c8265e02bf4787dec434590ddeca3c1ffa9671bd9 0.0s done
+ ✔ Container sistema-reservas-app-1  Removed  0.1s
+ ✔ Container sistema-reservas-migrate-1 Removed  0.3s
+ ✔ Container sistema-reservas-db-1  Removed  0.6s
+ ✔ Network sistema-reservas_default  Removed  0.4s
 #29 naming to ghcr.io/facundobruna/sistema-reservas-app:v0.1.0 done
-#29 unpacking to ghcr.io/facundobruna/sistema-reservas-app:v0.1.0
-#29 unpacking to ghcr.io/facundobruna/sistema-reservas-app:v0.1.0 1.0s done
-#29 DONE 3.0s
-
-#24 [migrate] exporting to image
-#24 ...
-
-#30 [app] resolving provenance for metadata file
-#30 DONE 0.0s
-
-#24 [migrate] exporting to image
-#24 exporting layers 24.4s done
-#24 exporting manifest sha256:f591d7e447da1e34003e54ab7197afd2a04318f852cac883c8f73e7480b41366 0.0s done
-#24 exporting config sha256:48f1b43ba9f18ece389d519bc5875b7892c39ddd3422efae992a80a2f0c70d8a 0.0s done
-#24 exporting attestation manifest sha256:2462120b1c08f891b2aaf94f89ec2455f40673c6d9980aa54d10752ffda715fa 0.0s done
-#24 exporting manifest list sha256:c69d09455226dceaf6d766029039e43631418f8af79ff715df5b25ef46efcaa5
-#24 exporting manifest list sha256:c69d09455226dceaf6d766029039e43631418f8af79ff715df5b25ef46efcaa5 0.0s done
 #24 naming to ghcr.io/facundobruna/sistema-reservas-migrate:v0.1.0 done
-#24 unpacking to ghcr.io/facundobruna/sistema-reservas-migrate:v0.1.0
-#24 unpacking to ghcr.io/facundobruna/sistema-reservas-migrate:v0.1.0 14.2s done
-#24 DONE 38.8s
-
-#31 [migrate] resolving provenance for metadata file
-#31 DONE 0.0s
 [+] up 6/6
- ✔ Image ghcr.io/facundobruna/sistema-reservas-migrate:v0.1.0 Built                                                                                                            68.6s
- ✔ Image ghcr.io/facundobruna/sistema-reservas-app:v0.1.0     Built                                                                                                            68.6s
- ✔ Container sistema-reservas-db-1                            Healthy                                                                                                          8.5s
- ✔ Container sistema-reservas-migrate-1                       Exited                                                                                                           9.1s
- ✔ Container sistema-reservas-app-1                           Started                                                                                                          9.2s
-PS C:\dev\Sistema-Reservas-Nuevo> 
-Arranque en una máquina limpia siguiendo el README: `cp .env.example .env` y `docker compose up -d`.
-Se ve el orden que impone el compose: Postgres arranca y queda `healthy`, el contenedor de
-migraciones corre y termina, y recién ahí arranca la app.
+ ✔ Image ghcr.io/facundobruna/sistema-reservas-migrate:v0.1.0 Built  68.6s
+ ✔ Image ghcr.io/facundobruna/sistema-reservas-app:v0.1.0  Built  68.6s
+ ✔ Container sistema-reservas-db-1  Healthy  8.5s
+ ✔ Container sistema-reservas-migrate-1  Exited  9.1s
+ ✔ Container sistema-reservas-app-1  Started  9.2s
+```
 
-![docker compose ps](img/tp2-compose-ps.png)
+> **Nota sobre la transcripción.** Se omitió la traza completa de BuildKit (las ~250 líneas de
+> `#1 … #31` con cada capa y su tiempo) y se dejó el resumen de compose, que es lo que muestra el
+> comportamiento evaluable. La traza completa se puede reproducir con
+> `docker compose --progress plain build`.
 
-![la app funcionando end-to-end](img/tp2-app-funcionando.png)
+| Dónde mirar | Qué prueba |
+|---|---|
+| `Image …-migrate:v0.1.0 Built` y `…-app:v0.1.0 Built` | Las dos imágenes se construyen desde el `Dockerfile`, con los nombres y el tag con que después se publican. |
+| `Container …-db-1  Healthy` | La base no solo arrancó: pasó el `pg_isready`. `depends_on` por sí solo esperaría únicamente a que el contenedor exista. |
+| `Container …-migrate-1  Exited` | El contenedor de migraciones corrió y terminó. No es un servicio: es de un solo uso. |
+| `Container …-app-1  Started` **después** de los dos anteriores | El orden lo impone el compose: la app no arranca hasta que la base está sana y el esquema aplicado. |
 
-Flujo completo contra el sistema contenerizado: reserva creada desde el wizard público y visible en
-el panel del restaurante. Los datos viajan hasta Postgres, que corre en otro contenedor y al que la
-app le habla por el nombre de servicio `db`.
+![Salida de docker compose up](img/tp2-compose-up.png)
+
+![docker compose ps con todo healthy](img/tp2-compose-ps.png)
+
+`docker compose ps`: `db` y `app` en `healthy`, `migrate` en `Exited (0)` — terminó bien y salió.
+
+![Reserva creada desde el wizard público](img/tp2-app-reserva-wizard.png)
+
+![La misma reserva en la agenda del panel del restaurante](img/tp2-app-reserva-panel.png)
+
+Flujo completo contra el sistema contenerizado: la reserva se crea desde el wizard público
+(`/r/demo`), viaja por la API de Next, se escribe en Postgres —que corre en **otro contenedor**, al
+que la app le habla por el nombre de servicio `db`— y aparece en la agenda del panel del restaurante
+(`/admin/demo/login`). Front, back y base, cada uno en su lugar, hablándose por la red de compose.
 
 ### 2. Prueba de persistencia
 
@@ -486,21 +255,177 @@ para poder desplegarlos en un entorno de QA o producción.
 
 ### 3. Tamaño de la imagen final contra la de build
 
-![comparación de tamaños](img/tp2-tamanos.png)
+![Comparación de tamaños en docker images](img/tp2-tamanos.png)
 
-Salida de `docker images` comparando la imagen final (`runner`) con la etapa de compilación
-(`builder`). La diferencia es lo que el multi-stage deja afuera: pnpm, las devDependencies, el
-código fuente y el toolchain de compilación. Solo la imagen chica es la que viaja al registry y la
-que se va a desplegar.
+Salida de `docker images` comparando la imagen que se publica (`sistema-reservas-app`, etapa
+`runner`) con la etapa de compilación (`reservas-builder`, construida aparte con
+`docker build --target builder`).
+
+La diferencia es exactamente lo que el multi-stage deja afuera: pnpm, las `devDependencies`, el
+código fuente TypeScript y el toolchain de compilación. Solo la imagen chica es la que viaja al
+registry en cada release y la que se descarga en cada despliegue — y es también la que tiene menos
+superficie de ataque, porque un compilador y el código fuente adentro de un contenedor de producción
+son cosas que un atacante agradece.
 
 ### 4. Imágenes publicadas en el registry
 
-![imágenes en ghcr.io](img/tp2-registry.png)
+Las dos imágenes están publicadas en GitHub Container Registry con tag `v0.1.0` y visibilidad
+pública, vinculadas a este repositorio mediante la etiqueta OCI
+`org.opencontainers.image.source` del `Dockerfile`:
 
-`sistema-reservas-app` y `sistema-reservas-migrate` publicadas en GitHub Container Registry con tag
-`v0.1.0` y visibilidad pública.
+- `ghcr.io/facundobruna/sistema-reservas-app:v0.1.0` — digest `sha256:c8fa59a5…`
+- `ghcr.io/facundobruna/sistema-reservas-migrate:v0.1.0` — digest `sha256:1bd61577…`
 
-![levantado desde el registry](img/tp2-registry-up.png)
+![Paquetes publicados en ghcr.io](img/tp2-registry.png)
 
-`docker compose -f docker-compose.registry.yml up -d`: el sistema levantado bajando las imágenes en
-vez de construirlas, que es lo que haría un entorno de QA o producción.
+#### Las capas se comparten entre imágenes
+
+Extracto del `docker push` de la segunda imagen:
+
+```text
+The push refers to repository [ghcr.io/facundobruna/sistema-reservas-migrate]
+529857829886: Pushed
+3f75213250a0: Pushed
+efbef6f9e333: Mounted from facundobruna/sistema-reservas-app
+95d689b98c52: Pushed
+1354aa71f038: Mounted from facundobruna/sistema-reservas-app
+a2980c1fee17: Mounted from facundobruna/sistema-reservas-app
+53c8fbc704e8: Mounted from facundobruna/sistema-reservas-app
+ae8a7256a1e5: Pushed
+16da5a640377: Mounted from facundobruna/sistema-reservas-app
+55afa1ecc21d: Mounted from facundobruna/sistema-reservas-app
+v0.1.0: digest: sha256:1bd615774977087c8da2baea20098716d9e622032d559bbc91adbc78461c1edb size: 856
+```
+
+De las diez capas, **seis no se subieron**: el registry ya las tenía y las montó desde la otra
+imagen. Las dos parten de `node:22-alpine` y comparten la etapa `deps`, así que comparten las capas
+correspondientes — que se identifican por su hash, no por a qué imagen pertenecen. Es el sistema de
+capas funcionando, y la razón por la que ordenar bien el `Dockerfile` (copiar `package.json` antes
+que el código) importa tanto: cambiar una línea de código no invalida la capa de dependencias.
+
+#### Prueba de que el `docker-compose.registry.yml` sirve de verdad
+
+Levantar la variante del registry teniendo las imágenes en la máquina **no prueba nada**: compose
+usa la copia local y nunca toca el registry. Por eso la prueba se hizo borrando las imágenes locales
+y **cerrando sesión** en `ghcr.io`: si igual las baja, es porque son públicas de verdad. Y se hizo
+en una carpeta que solo contiene el archivo de compose y el `.env` — sin una línea de código fuente,
+que es la situación de un servidor de QA.
+
+```text
+=== 0. La carpeta solo tiene el compose y el .env: no hay codigo fuente ===
+
+Name                        Length
+----                        ------
+.env                          2371
+docker-compose.registry.yml   2197
+registry.txt                   156
+
+=== 1. Bajar el stack y borrar las imagenes locales ===
+  Container sistema-reservas-registry-app-1 Stopping
+
+ Container sistema-reservas-registry-app-1 Stopped
+ Container sistema-reservas-registry-app-1 Removing
+ Container sistema-reservas-registry-app-1 Removed
+ Container sistema-reservas-registry-migrate-1 Stopping
+ Container sistema-reservas-registry-migrate-1 Stopped
+ Container sistema-reservas-registry-migrate-1 Removing
+ Container sistema-reservas-registry-migrate-1 Removed
+ Container sistema-reservas-registry-db-1 Stopping
+ Container sistema-reservas-registry-db-1 Stopped
+ Container sistema-reservas-registry-db-1 Removing
+ Container sistema-reservas-registry-db-1 Removed
+ Volume sistema-reservas-registry_db_data Removing
+ Network sistema-reservas-registry_default Removing
+ Volume sistema-reservas-registry_db_data Removed
+ Network sistema-reservas-registry_default Removed
+Untagged: ghcr.io/facundobruna/sistema-reservas-app:v0.1.0
+Deleted: sha256:c8fa59a544913f4542cdfdb35e9aaeeaad046440ca48db33c72a9e2c3aa9c163
+Untagged: ghcr.io/facundobruna/sistema-reservas-migrate:v0.1.0
+Deleted: sha256:1bd615774977087c8da2baea20098716d9e622032d559bbc91adbc78461c1edb
+=== 2. Sin credenciales: si igual las baja, son publicas ===
+Removing login credentials for ghcr.io
+=== 3. Levantar bajando las imagenes del registry ===
+  Image ghcr.io/facundobruna/sistema-reservas-migrate:v0.1.0 Pulling
+
+ Image ghcr.io/facundobruna/sistema-reservas-app:v0.1.0 Pulling
+ ae8a7256a1e5 Pulling fs layer 0B
+ 3f75213250a0 Pulling fs layer 0B
+ 1354aa71f038 Pulling fs layer 0B
+ 529857829886 Pulling fs layer 0B
+ ae8a7256a1e5 Already exists 0B
+ 3f75213250a0 Already exists 0B
+ 1354aa71f038 Already exists 0B
+ 529857829886 Already exists 0B
+ 1354aa71f038 Pull complete 0B
+ ad17f8b5e867 Pulling fs layer 0B
+ 64a3e35df017 Pulling fs layer 0B
+ 66ff05ade7f0 Pulling fs layer 0B
+ 928401394337 Pulling fs layer 0B
+ ad17f8b5e867 Already exists 0B
+ 66ff05ade7f0 Already exists 0B
+ 928401394337 Already exists 0B
+ 64a3e35df017 Already exists 0B
+ 66ff05ade7f0 Pull complete 0B
+ 928401394337 Pull complete 0B
+ 64a3e35df017 Pull complete 0B
+ 95d689b98c52 Download complete 0B
+ ad17f8b5e867 Pull complete 0B
+ 3261f0275893 Download complete 0B
+ Image ghcr.io/facundobruna/sistema-reservas-app:v0.1.0 Pulled
+ 3f75213250a0 Pull complete 0B
+ 529857829886 Pull complete 0B
+ ae8a7256a1e5 Pull complete 0B
+ Image ghcr.io/facundobruna/sistema-reservas-migrate:v0.1.0 Pulled
+ Network sistema-reservas-registry_default Creating
+ Network sistema-reservas-registry_default Created
+ Volume sistema-reservas-registry_db_data Creating
+ Volume sistema-reservas-registry_db_data Created
+ Container sistema-reservas-registry-db-1 Creating
+ Container sistema-reservas-registry-db-1 Created
+ Container sistema-reservas-registry-migrate-1 Creating
+ Container sistema-reservas-registry-migrate-1 Created
+ Container sistema-reservas-registry-app-1 Creating
+ Container sistema-reservas-registry-app-1 Created
+ Container sistema-reservas-registry-db-1 Starting
+ Container sistema-reservas-registry-db-1 Started
+ Container sistema-reservas-registry-db-1 Waiting
+ Container sistema-reservas-registry-db-1 Healthy
+ Container sistema-reservas-registry-migrate-1 Starting
+ Container sistema-reservas-registry-migrate-1 Started
+ Container sistema-reservas-registry-migrate-1 Waiting
+ Container sistema-reservas-registry-db-1 Waiting
+ Container sistema-reservas-registry-db-1 Healthy
+ Container sistema-reservas-registry-migrate-1 Exited
+ Container sistema-reservas-registry-app-1 Starting
+ Container sistema-reservas-registry-app-1 Started
+ Container sistema-reservas-registry-migrate-1 Waiting
+ Container sistema-reservas-registry-app-1 Waiting
+ Container sistema-reservas-registry-db-1 Waiting
+ Container sistema-reservas-registry-migrate-1 Exited
+ Container sistema-reservas-registry-db-1 Healthy
+ Container sistema-reservas-registry-app-1 Healthy
+=== 4. Estado final ===
+NAME                              IMAGE                                              COMMAND                  SERVICE   CREATED          STATUS                    PORTS
+sistema-reservas-registry-app-1   ghcr.io/facundobruna/sistema-reservas-app:v0.1.0   "docker-entrypoint.s…"   app       13 seconds ago   Up 5 seconds (healthy)    0.0.0.0:3000->3000/tcp, [::]:3000->3000/tcp
+sistema-reservas-registry-db-1    postgres:17-alpine                                 "docker-entrypoint.s…"   db        14 seconds ago   Up 12 seconds (healthy)   0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp
+```
+
+| Dónde mirar | Qué prueba |
+|---|---|
+| **Paso 0** — el listado tiene `docker-compose.registry.yml` y `.env`, nada más | No hay `src/`, ni `Dockerfile`, ni `package.json`. El sistema se levanta desde artefactos publicados, no desde el código. |
+| **Paso 1** — `Deleted: sha256:c8fa59a5…` y `sha256:1bd61577…` | Las imágenes se borraron de la máquina. Sin esto, el pull del paso 3 nunca habría ocurrido. |
+| **Paso 2** — `Removing login credentials for ghcr.io` | A partir de acá no hay credenciales. Lo que siga es un acceso anónimo. |
+| **Paso 3** — `Pulling` → `Pulled` en las dos imágenes, sin estar logueado | Las imágenes son públicas. No hace falta confiar en lo que dice la configuración de GitHub: se comprobó. |
+| **Paso 3** — varias capas dicen `Already exists` | Son las capas base de `node:22-alpine`, que seguían en la máquina por otras imágenes. Docker no vuelve a bajar lo que ya tiene: descarga por capa, no por imagen. |
+| **Paso 4** — `app` y `db` en `(healthy)`, `migrate` no aparece | El sistema quedó arriba consumiendo las imágenes del registry. `migrate` no está listado porque terminó y salió: es un contenedor de un solo uso, no un servicio. |
+
+![La app corriendo desde las imágenes del registry](img/tp2-registry-up.png)
+
+`localhost:3000` servido por el stack levantado desde ghcr.io, sin código fuente en la carpeta y sin
+haber compilado nada.
+
+> **Nota sobre la transcripción.** Se quitaron los bloques `NativeCommandError` que PowerShell
+> intercala —Docker escribe su progreso por *stderr* y PowerShell lo envuelve como error aunque el
+> comando termine bien— y las líneas repetidas de progreso de descarga (`Extracting NB`), que son
+> cientos y no aportan. Los estados de cada capa (`Pulling fs layer`, `Already exists`,
+> `Pull complete`) están completos y sin editar.
