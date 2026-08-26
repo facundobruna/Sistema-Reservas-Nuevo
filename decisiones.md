@@ -52,11 +52,29 @@ las ramas cortas: el conflicto es proporcional al tiempo que las ramas estuviero
 
 ### Problemas encontrados y cómo los solucioné
 
-<!-- Completar con los tropiezos reales mientras hacés el TP. Los errores contados con honestidad
-     valen más que un camino perfecto: son los que demuestran que entendiste. Formato sugerido:
-     qué pasó · por qué pasaba · cómo lo resolví. -->
+- **La app estaba entera en local y sin subir, y las protecciones ya estaban puestas.** Tenía 17
+  commits en `main` local que nunca había pusheado, y en `origin` solo estaba el commit inicial. Con
+  *Do not allow bypassing* activo, el `git push` a `main` ya no era una opción — que es justamente el
+  punto de la regla. Lo resolví como corresponde: creé `feature/app-inicial` apuntando al mismo
+  commit donde estaba parado (`git switch -c` no mueve nada, solo agrega un nombre), pusheé la rama
+  —las ramas no están protegidas, solo `main`— y la integré por Pull Request. Al mergear elegí
+  **Create a merge commit** y no *Squash and merge*, para no aplastar en un commit el historial de
+  milestones de la construcción de la app.
 
-- **...**
+- **Un `.git/index.lock` huérfano dejó el repositorio bloqueado.** Cualquier comando de git me
+  contestaba `Unable to create '.git/index.lock': File exists`, sugiriendo que había otro proceso de
+  git corriendo. No había ninguno: una herramienta externa que estaba inspeccionando el repositorio
+  creó el lock y no pudo borrarlo al terminar, y quedó el archivo huérfano. Git usa ese archivo como
+  semáforo para que dos procesos no escriban el índice al mismo tiempo; si el archivo queda sin
+  dueño, git asume lo peor y frena. Se resuelve borrando el `.git/index.lock` a mano. Aprendizaje:
+  el mensaje de error de git describe la causa *probable*, no la única.
+
+- **Fines de línea: `git diff` mostraba archivos enteros modificados sin que yo los tocara.**
+  Después de editar el `README.md` desde la web de GitHub, git me marcaba las 261 líneas del archivo
+  como cambiadas. No era contenido: era CRLF contra LF. GitHub guarda con LF y Windows escribe CRLF,
+  así que para git cada línea es distinta aunque el texto sea idéntico. Lo resolví descartando esos
+  cambios locales y configurando `core.autocrlf` para que la conversión sea automática y no vuelva a
+  ensuciar los diffs.
 
 ### Declaración de uso de IA
 
@@ -70,15 +88,16 @@ Usé **Claude (Cowork)** en este TP para:
 
 **Cómo lo verifiqué:**
 
-<!-- Completar con lo que realmente hiciste. Ideas de lo que corresponde escribir acá: -->
-
-- La explicación del conflicto la contrasté contra lo que efectivamente pasó en mi repositorio:
-  miré los marcadores reales en el editor de GitHub y verifiqué con `git log --graph` que las dos
-  ramas salían del mismo commit.
+- La explicación de por qué Git no puede resolver el conflicto solo la contrasté contra lo que
+  efectivamente pasó en mi repositorio: miré los marcadores reales en el editor de GitHub y verifiqué
+  con `git log --graph` que `feature/titulo-a` y `feature/titulo-b` salían del mismo commit de `main`.
 - Las protecciones no las di por buenas porque estuvieran configuradas: las verifiqué con la prueba
   de fuego del enunciado — intenté pushear directo a `main` y confirmé que GitHub me rechazó a mí,
-  que soy el dueño del repositorio.
-- Cada paso lo ejecuté yo, en mi máquina y en la web de GitHub; la IA no tuvo acceso a mi cuenta.
+  que soy el dueño del repositorio. Ésa es la captura 1 de `evidencias.md`.
+- Los tres problemas de la sección anterior los diagnostiqué y los resolví ejecutando yo los
+  comandos; la explicación de cada causa la contrasté con el comportamiento real del repositorio.
+- Cada paso lo ejecuté yo, en mi máquina y en la web de GitHub. La IA no tuvo acceso a mi cuenta de
+  GitHub en ningún momento.
 
-**Lo que no fue asistido por IA:** la configuración de las protecciones, la creación y merge de los
-Pull Requests, la resolución del conflicto, el tag y la release, y las capturas de evidencia.
+**Lo que no fue asistido por IA:** la configuración de las protecciones de rama, la creación y merge
+de los Pull Requests, la resolución del conflicto, el tag y la release, y las capturas de evidencia.
