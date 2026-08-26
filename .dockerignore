@@ -1,0 +1,39 @@
+# Todo lo que no debe entrar al contexto de build: acelera el envío al daemon
+# y evita invalidar el cache por archivos que no afectan la compilación.
+
+# dependencias y artefactos: se reinstalan y recompilan adentro de la imagen
+node_modules
+.next
+out
+build
+dist
+*.tsbuildinfo
+
+# control de versiones y herramientas locales
+.git
+.gitignore
+.claude
+.vscode
+.idea
+
+# secretos: NUNCA entran a una imagen
+.env
+.env.*
+!.env.example
+
+# documentación y material de la materia (no lo necesita el build)
+README.md
+decisiones.md
+evidencias.md
+plan.md
+prompt-maestro-desde-cero.md
+docs
+img
+
+# tests y config de tests: la imagen final no los corre
+tests
+vitest.config.ts
+
+# basura del sistema operativo
+.DS_Store
+*.log

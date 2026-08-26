@@ -2,45 +2,101 @@
 
 El sistema de reservas más rápido y sin fricción del mercado: gestión de reservas para restaurantes, y nada más. Ver [prompt-maestro-desde-cero.md](./prompt-maestro-desde-cero.md) (fuente de verdad del producto) y [plan.md](./plan.md) (hoja de ruta de construcción).
 
-## Stack
+## Arranque en una máquina limpia
 
-Node.js 22+ · TypeScript · Next.js 16 (App Router) · PostgreSQL 17 · Drizzle ORM · pg-boss · Mercado Pago (SDK oficial) · Luxon · Tailwind CSS 4 · Zod · React Query · pnpm.
-
-## Requisitos
-
-- Node.js 22+
-- pnpm (`corepack enable` o `npm i -g pnpm`)
-- Docker + Docker Compose (para Postgres local)
-
-## Levantar todo desde cero
+**Requisito único: Docker.** No hace falta instalar Node, ni pnpm, ni Postgres — todo corre en
+contenedores.
 
 ```bash
-# 1. Instalar dependencias
-pnpm install
-
-# 2. Variables de entorno
 cp .env.example .env
-
-# 3. Levantar Postgres
 docker compose up -d
-
-# 4. Migrar el esquema (extensiones, tablas, constraint anti doble-booking)
-pnpm db:migrate
-
-# 5. Sembrar datos de demo (restaurante, zonas, mesas, combos, servicios, turnos)
-pnpm db:seed
-
-# 6. Levantar la app
-pnpm dev
-
-# 7. (Opcional) Levantar el worker de notificaciones, en otra terminal
-pnpm worker
-
-# 8. (Opcional) Crear una cuenta de superadmin para /superadmin
-pnpm superadmin:create -- --email=vos@ejemplo.com --password=algo-seguro --name="Tu nombre"
 ```
 
-La app queda en [http://localhost:3000](http://localhost:3000). Sin el worker corriendo, las reservas se siguen creando normalmente — simplemente no salen los emails de confirmación/recordatorio hasta que lo levantes (quedan agendados en `notification`, esperando).
+Son **dos** comandos y no uno, a propósito: el `.env` lleva los secretos y es lo único que no puede
+viajar en el repositorio, así que el arranque necesita ese paso manual.
+
+`docker compose up -d` hace tres cosas en orden:
+
+1. Levanta **Postgres** y espera a que acepte conexiones de verdad — el healthcheck, no solo que el
+   contenedor exista.
+2. Corre las **migraciones** en un contenedor de un solo uso, que aplica el esquema y termina.
+3. Arranca la **app**, recién cuando las migraciones terminaron bien.
+
+La app queda en <http://localhost:3000>. Estado del sistema:
+<http://localhost:3000/api/v1/health>.
+
+```bash
+docker compose ps          # qué está arriba y si está healthy
+docker compose logs -f app # seguir los logs de la app
+```
+
+### Datos de demo
+
+El seed corre en la imagen de migraciones, que es la que tiene el toolchain:
+
+```bash
+docker compose run --rm migrate node_modules/.bin/tsx src/db/seed.ts
+```
+
+Es idempotente: se puede correr de nuevo sin duplicar nada. Crea el restaurante "Fuego Norte" (ver
+más abajo). Para una cuenta de superadmin:
+
+```bash
+docker compose run --rm migrate node_modules/.bin/tsx src/db/create-superadmin.ts \
+  --email=vos@ejemplo.com --password=algo-seguro --name="Tu nombre"
+```
+
+### Apagar, prender y borrar
+
+```bash
+docker compose down      # apaga todo, los datos SOBREVIVEN (viven en el volumen)
+docker compose up -d     # vuelve a levantar con los mismos datos
+docker compose down -v   # apaga y BORRA el volumen: la base arranca vacía
+```
+
+### Levantarlo desde el registry (sin compilar)
+
+Las imágenes están publicadas en GitHub Container Registry. Esta variante las **baja** en vez de
+construirlas, que es lo que haría un entorno de QA o de producción — no necesita el código fuente,
+solo el archivo de compose y el `.env`:
+
+```bash
+cp .env.example .env
+docker compose -f docker-compose.registry.yml up -d
+```
+
+### Desarrollo local, sin contenerizar la app
+
+Para iterar con hot reload conviene correr la app en la máquina y dejar solo la base en Docker.
+Requiere Node.js 22+ y pnpm (`corepack enable`):
+
+```bash
+cp .env.example .env
+docker compose up -d db     # solo Postgres
+pnpm install
+pnpm db:migrate
+pnpm db:seed
+pnpm dev                    # http://localhost:3000
+pnpm worker                 # opcional, en otra terminal: notificaciones por email
+```
+
+En este modo la app usa la `DATABASE_URL` del `.env`, que apunta a **`localhost`**. Adentro de
+compose el host es **`db`** (el nombre del servicio, que resuelve la red de compose) y el propio
+`docker-compose.yml` la pisa. Es la diferencia que más confunde al principio.
+
+Sin el worker corriendo, las reservas se crean normalmente — simplemente no salen los emails de
+confirmación y recordatorio hasta que lo levantes: quedan agendados en `notification`, esperando.
+
+## Stack y arquitectura de la imagen
+
+Node.js 22 · TypeScript · Next.js 16 (App Router) · PostgreSQL 17 · Drizzle ORM · pg-boss · Luxon ·
+Tailwind CSS 4 · Zod · React Query · pnpm.
+
+La app es un **monolito**: el App Router sirve las páginas (frontend) y las rutas de `src/app/api/**`
+son la API (backend). Compilan al mismo artefacto, así que hay **un solo `Dockerfile`**, con cuatro
+etapas: `deps` (instala dependencias) → `builder` (compila con `output: "standalone"`) → `migrator`
+(imagen de un solo uso con el toolchain, para migraciones y seed) y `runner` (la imagen que se
+publica: sin SDK, sin pnpm, sin código fuente y corriendo como usuario sin privilegios).
 
 ## Restaurante de demo
 

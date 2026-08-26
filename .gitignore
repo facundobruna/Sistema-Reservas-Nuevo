@@ -40,3 +40,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# herramientas locales de IA
+.claude/
+
+# guia personal de estudio, no es entregable
+defensa.md
+build-error.txt
+build.txt
+salida-tp2.txt

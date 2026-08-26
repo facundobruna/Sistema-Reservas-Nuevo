@@ -1,0 +1,72 @@
+# Misma topología que docker-compose.yml, pero BAJANDO las imágenes del registry
+# en vez de construirlas. Es lo que haría un entorno de QA o producción: no
+# compila, consume un artefacto ya construido y versionado.
+#
+#   cp .env.example .env
+#   docker compose -f docker-compose.registry.yml up -d
+#
+# No hace falta tener el código fuente: solo este archivo y el .env.
+
+name: sistema-reservas-registry
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    image: ghcr.io/facundobruna/sistema-reservas-migrate:v0.1.0
+    environment:
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    image: ghcr.io/facundobruna/sistema-reservas-app:v0.1.0
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      APP_URL: ${APP_URL}
+      AUTH_SECRET: ${AUTH_SECRET}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-console}
+      EMAIL_FROM: ${EMAIL_FROM}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      # Se usa el propio node y no wget/curl: `node:22-alpine` trae el wget de
+      # BusyBox, que no acepta las opciones del wget de GNU (--no-verbose,
+      # --tries), y curl directamente no está. Node 22 tiene fetch global, así
+      # que el chequeo no depende de qué binarios traiga la imagen base.
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/v1/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  db_data:
