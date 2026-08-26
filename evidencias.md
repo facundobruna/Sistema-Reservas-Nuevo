@@ -45,3 +45,57 @@ contenido final y borrar los marcadores, no ejecutar un comando.
 
 Tag anotado `v1.0.0` sobre `main` y su release publicada con las notas de qué incluye esta versión.
 Semver: `MAJOR.MINOR.PATCH` — primera versión estable de la entrega.
+
+---
+
+## TP2 — Contenedores
+
+### 1. `docker compose up -d` desde cero y el sistema funcionando
+
+![docker compose up desde cero](img/tp2-compose-up.png)
+
+Arranque en una máquina limpia siguiendo el README: `cp .env.example .env` y `docker compose up -d`.
+Se ve el orden que impone el compose: Postgres arranca y queda `healthy`, el contenedor de
+migraciones corre y termina, y recién ahí arranca la app.
+
+![docker compose ps](img/tp2-compose-ps.png)
+
+![la app funcionando end-to-end](img/tp2-app-funcionando.png)
+
+Flujo completo contra el sistema contenerizado: reserva creada desde el wizard público y visible en
+el panel del restaurante. Los datos viajan hasta Postgres, que corre en otro contenedor y al que la
+app le habla por el nombre de servicio `db`.
+
+### 2. Prueba de persistencia
+
+![down y up conservan los datos](img/tp2-persistencia-down-up.png)
+
+`docker compose down` seguido de `docker compose up -d`: la reserva sigue ahí. Los datos no viven en
+la capa escribible del contenedor sino en el volumen `db_data`, que sobrevive a que el contenedor se
+destruya.
+
+![down -v borra los datos](img/tp2-persistencia-down-v.png)
+
+`docker compose down -v`: la `-v` se lleva el volumen. Al volver a levantar, la base arranca vacía y
+las migraciones se aplican de nuevo sobre un esquema limpio.
+
+### 3. Tamaño de la imagen final contra la de build
+
+![comparación de tamaños](img/tp2-tamanos.png)
+
+Salida de `docker images` comparando la imagen final (`runner`) con la etapa de compilación
+(`builder`). La diferencia es lo que el multi-stage deja afuera: pnpm, las devDependencies, el
+código fuente y el toolchain de compilación. Solo la imagen chica es la que viaja al registry y la
+que se va a desplegar.
+
+### 4. Imágenes publicadas en el registry
+
+![imágenes en ghcr.io](img/tp2-registry.png)
+
+`sistema-reservas-app` y `sistema-reservas-migrate` publicadas en GitHub Container Registry con tag
+`v0.1.0` y visibilidad pública.
+
+![levantado desde el registry](img/tp2-registry-up.png)
+
+`docker compose -f docker-compose.registry.yml up -d`: el sistema levantado bajando las imágenes en
+vez de construirlas, que es lo que haría un entorno de QA o producción.

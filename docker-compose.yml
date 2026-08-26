@@ -1,20 +1,87 @@
+# Sistema completo: base de datos + migraciones + aplicación.
+# Arranque en una máquina limpia:  cp .env.example .env  &&  docker compose up -d
+#
+# Esta variante CONSTRUYE las imágenes desde el Dockerfile. La que las BAJA del
+# registry está en docker-compose.registry.yml.
+
+name: sistema-reservas
+
 services:
+  # --------------------------------------------------------------------------
+  # Base de datos. Los datos viven en un volumen administrado por Docker, no en
+  # la capa escribible del contenedor: por eso sobreviven a `down` y `up`.
+  # --------------------------------------------------------------------------
   db:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${DB_USER:-reservas}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-reservas}
-      POSTGRES_DB: ${DB_NAME:-reservas}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
     ports:
+      # Publicado solo para poder inspeccionar la base desde la máquina host.
+      # La app NO usa este puerto: le habla a `db` por la red de compose.
       - "${DB_PORT:-5432}:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-reservas} -d ${DB_NAME:-reservas}"]
+      # `depends_on` solo espera a que el contenedor ARRANQUE. Postgres tarda
+      # unos segundos más en aceptar conexiones, así que sin este healthcheck
+      # la app arranca contra una base que todavía no escucha y se cae.
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # --------------------------------------------------------------------------
+  # Migraciones. No es un servicio: corre una vez, aplica el esquema y termina.
+  # La app espera a que termine BIEN antes de arrancar.
+  # --------------------------------------------------------------------------
+  migrate:
+    build:
+      context: .
+      target: migrator
+    image: ghcr.io/facundobruna/sistema-reservas-migrate:v0.1.0
+    environment:
+      # `db` es el nombre del servicio de arriba. La red de compose lo resuelve
+      # como si fuera un host: no hace falta saber ninguna IP.
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  # --------------------------------------------------------------------------
+  # La aplicación: Next.js sirve el frontend y la API en el mismo proceso.
+  # --------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      target: runner
+    image: ghcr.io/facundobruna/sistema-reservas-app:v0.1.0
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      # Ojo: esta DATABASE_URL pisa a la del .env a propósito. La del .env
+      # apunta a localhost (sirve para `pnpm dev` fuera de Docker); adentro de
+      # la red de compose el host es `db`.
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      APP_URL: ${APP_URL}
+      AUTH_SECRET: ${AUTH_SECRET}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-console}
+      EMAIL_FROM: ${EMAIL_FROM}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
 volumes:
   db_data:
