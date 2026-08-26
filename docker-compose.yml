@@ -77,7 +77,16 @@ services:
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/v1/health"]
+      # Se usa el propio node y no wget/curl: `node:22-alpine` trae el wget de
+      # BusyBox, que no acepta las opciones del wget de GNU (--no-verbose,
+      # --tries), y curl directamente no está. Node 22 tiene fetch global, así
+      # que el chequeo no depende de qué binarios traiga la imagen base.
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/v1/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+
       interval: 10s
       timeout: 5s
       retries: 5

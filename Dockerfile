@@ -46,12 +46,15 @@ RUN pnpm build
 # ---------------------------------------------------------------------------
 FROM node:22-alpine AS migrator
 RUN apk add --no-cache libc6-compat
-RUN corepack enable
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json tsconfig.json ./
 COPY src ./src
-CMD ["pnpm", "db:migrate"]
+# Se invoca `tsx` directamente y NO `pnpm db:migrate`: al correr un script, pnpm
+# hace un chequeo de estado de dependencias que dispara un `install` implícito,
+# sale a la red a revalidar el lockfile entero y falla. Un contenedor no puede
+# depender de internet para arrancar. El binario ya está en la imagen.
+CMD ["node_modules/.bin/tsx", "src/db/migrate.ts"]
 
 # ---------------------------------------------------------------------------
 # Etapa 4 — runner: la imagen que se publica y se despliega. Sin SDK, sin
@@ -71,6 +74,9 @@ ENV HOSTNAME=0.0.0.0
 
 RUN addgroup -S -g 1001 nodejs && adduser -S -u 1001 -G nodejs nextjs
 
+# public/ va versionada con un .gitkeep aunque hoy esté vacía: git no versiona
+# directorios vacíos, y sin el archivo la carpeta no llega al contexto de build
+# y este COPY falla. Es la carpeta de assets estáticos que sirve Next.
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static

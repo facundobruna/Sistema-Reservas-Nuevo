@@ -200,9 +200,68 @@ dos comandos y no uno.
 
 ### Problemas encontrados y cómo los solucioné
 
-<!-- Completar mientras construís y probás las imágenes: qué falló, por qué, cómo lo resolviste. -->
+- **El build de la imagen fallaba con `DATABASE_URL no está definida`, y la solución correcta era
+  cambiar la app, no el Dockerfile.** El primer `docker compose build` reventaba en `pnpm build`,
+  en la fase *Collecting page data*, con el error de la variable de entorno faltante. La causa:
+  `next build` importa cada `route.ts` para recolectar su configuración, esas rutas importan
+  `src/db/client.ts`, y ese módulo validaba `DATABASE_URL` **en el cuerpo del módulo** — es decir,
+  al importarse. Adentro de la imagen no hay `.env` porque el `.dockerignore` lo excluye a
+  propósito, así que la variable no existía y el módulo tiraba antes de que se compilara nada. En mi
+  máquina nunca lo había visto porque el `.env` está siempre ahí.
 
-- **...**
+  Había tres salidas y dos son malas: meter el `.env` en el contexto de build (mete un secreto en
+  una capa de la imagen, inaceptable) o pasar una `DATABASE_URL` falsa como `ARG` de build (esconde
+  el problema y deja una cadena de conexión inventada dando vueltas en el Dockerfile). La correcta
+  es la tercera: **que el cliente de base se construya cuando se usa y no cuando se importa.**
+  Reescribí `src/db/client.ts` con inicialización perezosa —la validación pasó adentro de una
+  función, igual que ya lo hacía `src/lib/auth/signed-token.ts` con `AUTH_SECRET`— y exporté un
+  `Proxy` para no tener que tocar los ~40 lugares que ya usan `db`.
+
+  El aprendizaje es más grande que Docker: **compilar y ejecutar son momentos distintos**, y hasta
+  ahora mi app exigía una base de datos disponible para poder *compilar*. Eso no es una limitación
+  del contenedor, es un acoplamiento que tenía el código y que el contenedor puso en evidencia. Es
+  el mismo argumento que justifica el multi-stage.
+
+- **El `COPY` de `public/` falló porque git no versiona directorios vacíos.** Con el build ya
+  arreglado, la etapa `runner` cortaba en `COPY --from=builder /app/public: not found`. La carpeta
+  `public/` de Next existía en mi máquina pero estaba vacía, y git no versiona directorios vacíos:
+  nunca estuvo en el repositorio, así que un `git stash -u` se la llevó y no volvió. La agregué con
+  un `.gitkeep` adentro para que quede versionada y llegue al contexto de build. La alternativa era
+  borrar esa línea del Dockerfile, pero entonces el día que agregue un asset estático a `public` la
+  imagen lo ignoraría en silencio, que es peor que fallar.
+
+- **El contenedor de migraciones salía a internet al arrancar, y por eso fallaba.** Con las
+  imágenes ya construidas, `migrate` moría con exit 1 después de 30 segundos. El log mostró la causa:
+  el `CMD` era `pnpm db:migrate`, y pnpm, antes de correr un script, hace un chequeo de estado de
+  dependencias que dispara un `install` implícito. El contenedor se bajaba pnpm con corepack, salía
+  a la red a revalidar las 830 entradas del lockfile (17,8 s) y terminaba abortando con
+  `ERR_PNPM_IGNORED_BUILDS` por los scripts de build de `esbuild` y `sharp`, que en un contenedor de
+  producción están deshabilitados por seguridad.
+
+  Lo cambié por `CMD ["node_modules/.bin/tsx", "src/db/migrate.ts"]`: el binario ya está adentro de
+  la imagen, así que se lo invoca directo. El principio general es el que importa: **un contenedor
+  no puede depender de la red para arrancar.** Si necesita descargar algo cada vez que se levanta,
+  deja de ser un artefacto inmutable y reproducible — falla cuando el registry de npm está lento,
+  cuando el runner del pipeline no tiene salida a internet, o cuando una dependencia cambia entre
+  dos arranques de la misma imagen. Todo lo que hace falta para ejecutar tiene que quedar resuelto
+  en tiempo de build.
+
+- **El healthcheck marcaba la app como caída aunque funcionaba perfecto.** `docker compose up
+  --wait` terminaba con `container sistema-reservas-app-1 is unhealthy`, pero
+  `http://localhost:3000/api/v1/health` respondía `{"status":"ok","database":"up"}` sin problema. El
+  chequeo era `wget --no-verbose --tries=1 --spider ...`, y `node:22-alpine` trae el `wget` de
+  BusyBox, que no acepta esas opciones (son del wget de GNU). Curl directamente no está en la
+  imagen. El comando fallaba siempre, sin importar el estado real de la app.
+
+  Lo reemplacé por un chequeo con el propio node, que sí está garantizado en la imagen:
+  `node -e "fetch('http://127.0.0.1:3000/api/v1/health').then(r => process.exit(r.ok ? 0 : 1))..."`.
+  Node 22 trae `fetch` global, así que el healthcheck deja de depender de qué binarios incluya la
+  imagen base — una dependencia oculta y frágil, sobre todo con imágenes mínimas como Alpine.
+
+  Lo importante de este error es la clase de error que es: **un healthcheck mal escrito no rompe la
+  aplicación, rompe la percepción que el orquestador tiene de ella.** El contenedor corre bien pero
+  el sistema lo cree caído. En el TP6 eso significa un despliegue marcado como fallido y,
+  potencialmente, un rollback automático de una versión que funcionaba.
 
 ### Declaración de uso de IA
 

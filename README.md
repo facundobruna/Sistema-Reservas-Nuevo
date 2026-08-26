@@ -35,14 +35,14 @@ docker compose logs -f app # seguir los logs de la app
 El seed corre en la imagen de migraciones, que es la que tiene el toolchain:
 
 ```bash
-docker compose run --rm migrate pnpm db:seed
+docker compose run --rm migrate node_modules/.bin/tsx src/db/seed.ts
 ```
 
 Es idempotente: se puede correr de nuevo sin duplicar nada. Crea el restaurante "Fuego Norte" (ver
 más abajo). Para una cuenta de superadmin:
 
 ```bash
-docker compose run --rm migrate pnpm superadmin:create -- \
+docker compose run --rm migrate node_modules/.bin/tsx src/db/create-superadmin.ts \
   --email=vos@ejemplo.com --password=algo-seguro --name="Tu nombre"
 ```
 
