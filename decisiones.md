@@ -274,3 +274,112 @@ propio README; comprobé el healthcheck y el flujo end-to-end; verifiqué la per
 `down` / `up` y el borrado con `down -v`; comparé el tamaño de la imagen final contra la de build; y
 probé la variante `docker-compose.registry.yml` bajando las imágenes del registry. Todo eso está en
 `evidencias.md`.
+
+---
+
+## TP3 — Planificación y trazabilidad
+
+### Duración del sprint: 1 semana
+
+La elegí para que **espeje el calendario real de la materia**: se dicta una clase por semana y se
+entrega un TP por clase, así que el borde del sprint cae exactamente donde el trabajo se evalúa de
+verdad. Un sprint que termina el martes cuando la entrega es el martes convierte la ceremonia en
+algo útil en vez de decorativo.
+
+Las otras dos razones son propias del contexto:
+
+- **Trabajo solo y con horas limitadas.** Una semana es el horizonte más largo que puedo planificar
+  sin que el plan quede viejo. A dos o tres semanas, la mitad de lo que planifiqué el primer día ya
+  no refleja lo que sé el décimo.
+- **Los errores de planificación aparecen antes.** Si me sobrecomprometo, me entero en una semana y
+  no en tres. Con sprints largos el error se descubre cuando ya es tarde para corregirlo.
+
+El costo que acepto: más ceremonia por unidad de trabajo entregado. Con sprints de una semana,
+planificar y revisar pesa proporcionalmente más que con sprints de dos. Lo asumo porque en un
+trabajo individual esa ceremonia son diez minutos, no una reunión de equipo.
+
+### Límite de trabajo en progreso: 2
+
+La regla de arranque es **cantidad de personas más uno**. Trabajando solo, eso da 2.
+
+El «más uno» no es relleno: es la **válvula** para cuando algo queda esperando por fuera de mí —una
+revisión, una respuesta, un build corriendo— y necesito avanzar en otra cosa sin abandonar lo
+primero. Sin ese margen, cualquier bloqueo me frena del todo; con demasiado margen, el límite deja
+de limitar y vuelvo a tener todo empezado y nada terminado.
+
+Detrás hay una idea, no un número: **empezar menos para terminar más**. El trabajo empezado y sin
+terminar no es productividad, es inventario — y el inventario cuesta: más cambio de contexto, más
+ramas viejas, más conflictos al integrar. El límite hace visible ese costo antes de pagarlo.
+
+**Qué me haría cambiarlo:** si nunca lo alcanzo, está demasiado alto y no está limitando nada — lo
+bajaría a 1. Si lo alcanzo todo el tiempo pero porque hay trabajo genuinamente bloqueado esperando a
+terceros, subirlo a 3 sería tratar el síntoma; lo correcto sería atacar la causa del bloqueo. La
+señal que me haría subirlo de verdad es sumar gente al equipo.
+
+### Diagnóstico de la historia mal escrita
+
+La historia del ejercicio es: *«Como desarrollador quiero crear la tabla usuarios para guardar los
+datos.»*
+
+**Por qué está mal:** es una **tarea disfrazada de historia**. Las tres partes del formato fallan.
+El *rol* es el desarrollador, que no es el beneficiario sino quien ejecuta. La *capacidad* describe
+el **cómo** (crear una tabla) en vez del **qué**: fija la solución técnica antes de decir qué
+problema resuelve. Y el *beneficio* es circular — «para guardar los datos» es la definición de lo
+que hace una tabla, no un valor para nadie. Además viola dos criterios de INVEST: no es **valiosa**
+por sí sola (nadie percibe una tabla) ni **testeable** (no hay criterio de aceptación posible que no
+sea «la tabla existe»).
+
+**Cómo la reescribiría:** corriendo el foco al usuario real y al valor. En mi app sería *«Como
+comensal quiero que el sistema recuerde mis datos de contacto para no tener que cargarlos en cada
+reserva»*, con criterios de aceptación verificables: que una segunda reserva con el mismo teléfono
+precargue nombre y email; que no se dupliquen comensales con el mismo teléfono; que se pueda
+corregir un dato mal cargado. La tabla desaparece de la historia y baja a donde corresponde: es una
+**tarea** de esa historia.
+
+**La regla que me llevo:** si el «para…» describe cómo funciona la solución en vez de qué gana
+alguien, lo que escribiste es una tarea.
+
+### Problemas encontrados y cómo los solucioné
+
+- **El panel rápido para crear un campo no deja configurarlo.** Al agregar el campo `Sprint` desde
+  el `+` de la vista de tabla, la interfaz solo ofrecía elegir el tipo: no dejaba escribir el nombre
+  ni fijar la duración de la iteración, y lo guardaba con los valores por defecto (nombre
+  «Iteration», duración de 2 semanas). La configuración completa está en otro lado: menú `⋯` →
+  **Settings** → **Fields**, donde sí aparecen juntos el nombre, el tipo, la fecha de inicio y la
+  duración. Ahí lo renombré a `Sprint` y lo pasé a 1 semana.
+
+  El detalle que casi se me pasa: al cambiar la duración, **las iteraciones ya generadas conservan
+  la vieja**. El cambio solo aplica a las que se creen después, así que hubo que borrar las de dos
+  semanas para que regenerara las de una. Si no, habría quedado defendiendo un sprint de una semana
+  con un tablero que mostraba iteraciones de dos — una incoherencia entre lo que digo y lo que la
+  herramienta muestra, que es exactamente lo que se mira en la defensa.
+
+<!-- Agregá acá cualquier otro tropiezo: el Project que nace privado, issues que no aparecen en el
+     tablero, la jerarquía de sub-issues, el `Closes #N` que no cerró lo que esperabas. -->
+
+### Declaración de uso de IA
+
+Usé **Claude (Cowork)** en este TP para dos cosas:
+
+1. **Ordenar el procedimiento**: a partir del enunciado, armar la secuencia de pasos sobre la web de
+   GitHub (crear el proyecto, las etiquetas, los cinco issues, la jerarquía de sub-issues, el
+   tablero con su sprint y su límite, y el pull request con `Closes #N`) y los textos de los issues.
+2. **Redactar esta sección**: la justificación escrita de la duración del sprint y del límite de
+   trabajo en progreso, y el diagnóstico de la historia mal escrita.
+
+**Las decisiones son mías, la redacción es asistida.** El sprint de 1 semana y el límite en 2 los
+elegí yo entre las opciones posibles; lo que la IA hizo fue ayudarme a poner por escrito el porqué.
+
+**Cómo lo verifiqué:**
+
+- Ejecuté yo cada paso en la web de GitHub. La IA no tuvo acceso a mi cuenta ni a mi proyecto.
+- El procedimiento propuesto no coincidía del todo con la interfaz real —lo del campo `Sprint` de la
+  sección anterior es el ejemplo—, así que lo corregí contra lo que la herramienta efectivamente
+  muestra, no contra lo que la IA suponía.
+- Comprobé la trazabilidad en vivo en vez de darla por hecha: verifiqué que el `Closes #N` cerrara
+  **la tarea** y no la historia, que la tarjeta se moviera sola a *Done*, y que desde la tarea
+  cerrada se pueda navegar al PR y subir hasta la épica.
+- Contrasté el diagnóstico de la historia mal escrita contra el marco teórico del enunciado (§2.3:
+  formato de historia de usuario, INVEST, criterios de aceptación) y lo reescribí sobre **mi**
+  aplicación, no sobre el ejemplo genérico: la historia reescrita habla del comensal y de sus datos
+  de contacto, que es un caso real de mi sistema de reservas.
