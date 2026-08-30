@@ -7,6 +7,14 @@ on:
   push:
     branches: [main]   # para que main tenga su propia corrida, que es la que lee el badge
 
+# Una corrida por rama a la vez. Si empujo un commit nuevo mientras la corrida
+# anterior de ese mismo Pull Request sigue trabajando, la vieja se cancela: su
+# resultado ya no le sirve a nadie, porque verifica un código que quedó atrás.
+# Ahorra minutos de runner y evita que el check quede reportando un estado viejo.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   # ---------------------------------------------------------------------------
   # La app: etapa `runner` del Dockerfile, la imagen que se publica y se despliega.

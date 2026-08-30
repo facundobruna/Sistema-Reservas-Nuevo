@@ -354,8 +354,24 @@ alguien, lo que escribiste es una tarea.
   con un tablero que mostraba iteraciones de dos — una incoherencia entre lo que digo y lo que la
   herramienta muestra, que es exactamente lo que se mira en la defensa.
 
-<!-- Agregá acá cualquier otro tropiezo: el Project que nace privado, issues que no aparecen en el
-     tablero, la jerarquía de sub-issues, el `Closes #N` que no cerró lo que esperabas. -->
+- **Me olvidé el `Closes #N` y la trazabilidad no existía.** Preparando la defensa revisé el tablero
+  y encontré los cinco items en *Todo* y la columna *Done* vacía: ninguna tarea se había cerrado
+  sola. El Pull Request que creó `.github/workflows/ci.yml` no llevaba `Closes #10` en su
+  descripción, así que se mergeó sin tocar el issue. Y lo peor del caso es **cómo falla**: no da
+  error ni advertencia — el PR entra normalmente y el issue queda abierto, así que si no vas a
+  mirarlo no te enterás. La jerarquía y el sprint estaban bien; lo único que faltaba era el enganche,
+  que es justamente lo que el práctico evalúa.
+
+  Lo resolví con un Pull Request posterior que completa el workflow de build —le agrega el bloque
+  `concurrency`, para que una corrida nueva del mismo PR cancele la anterior en vez de dejarla
+  gastando minutos verificando código que ya quedó atrás— y esta vez sí lleva `Closes #10` en la
+  descripción. Al mergearse, el issue se cerró solo y la tarjeta pasó a *Done*.
+
+  **Aclaración honesta sobre el alcance de esa tarea:** su título dice «build y tests», y lo que hoy
+  está hecho es la parte de build — el pipeline todavía no corre tests, porque eso es el TP5. Si
+  tuviera que rehacer la planificación partiría esa tarea en dos, una por cada mitad. La historia
+  queda abierta en 1 de 2 justamente por eso: falta la tarea #11.
+
 
 ### Declaración de uso de IA
 
