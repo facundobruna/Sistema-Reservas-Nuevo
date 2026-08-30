@@ -1,5 +1,7 @@
 # Sistema de Reservas — Ingeniería del Software 3 (UCC 2026)
 
+[![CI](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/workflows/ci.yml/badge.svg)](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/workflows/ci.yml)
+
 El sistema de reservas más rápido y sin fricción del mercado: gestión de reservas para restaurantes, y nada más. Ver [prompt-maestro-desde-cero.md](./prompt-maestro-desde-cero.md) (fuente de verdad del producto) y [plan.md](./plan.md) (hoja de ruta de construcción).
 
 ## Arranque en una máquina limpia
