@@ -383,3 +383,126 @@ elegí yo entre las opciones posibles; lo que la IA hizo fue ayudarme a poner po
   formato de historia de usuario, INVEST, criterios de aceptación) y lo reescribí sobre **mi**
   aplicación, no sobre el ejemplo genérico: la historia reescrita habla del comensal y de sus datos
   de contacto, que es un caso real de mi sistema de reservas.
+
+---
+
+## TP4 — CI: Pipelines as Code
+
+### Estructura del pipeline: dos jobs en paralelo
+
+`.github/workflows/ci.yml` tiene dos jobs, **`build-app`** y **`build-migrate`**, que corren en
+paralelo y construyen dos etapas distintas del mismo `Dockerfile`: `runner` y `migrator`.
+
+**Por qué dos y no uno.** Mi aplicación es un monolito con un solo `Dockerfile` (ver TP2), pero
+publica **dos imágenes**, y el pipeline verifica lo que la aplicación realmente tiene. No es
+paralelismo decorativo para llegar a un número: si mañana rompo la etapa `migrator` —por ejemplo
+copiando mal `src/db`— quiero enterarme aunque la app compile perfecto. Con un solo job que
+construyera únicamente `runner`, ese error llegaría a producción sin que nadie lo viera.
+
+Eso se comprobó solo durante la demostración del gate: al romper un import del frontend, `build-app`
+quedó en rojo y `build-migrate` en verde. Dos señales distintas sobre el mismo commit, que es
+exactamente para lo que sirve separarlos.
+
+**Por qué en paralelo.** No hay dependencia entre ellos: ninguno consume la salida del otro, así que
+serializarlos solo sumaría espera. En paralelo, el tiempo del pipeline es el del job más lento y no
+la suma de los dos.
+
+**Qué NO comparten dos jobs.** Nada. Cada uno corre en su propia máquina virtual limpia, que GitHub
+crea y destruye: no comparten disco, ni sistema de archivos, ni el cache local de Docker, ni el
+`node_modules`. Por eso los dos ejecutan la etapa `deps` por su cuenta y hacen el mismo
+`pnpm install` dos veces. Eso no es un desperdicio evitable: es el precio del aislamiento, que es lo
+que hace que un job no pueda contaminar al otro. Lo único que comparten es el cache externo, y solo
+porque se lo configuró explícitamente.
+
+### Qué cachea el pipeline, y qué pasa si el cache desaparece
+
+Cachea **las capas de la imagen**, con `type=gha` — el almacén de GitHub Actions, que sobrevive
+entre corridas. No es el Docker de mi máquina ni el del runner, que nace vacío cada vez. Hacen falta
+tres cosas juntas: `setup-buildx-action` (el constructor de fábrica guarda las capas en el disco de
+la máquina, que se destruye al terminar; este otro sabe exportarlas), `cache-from` para traerlas al
+empezar y `cache-to: mode=max` para guardarlas al terminar, incluidas las intermedias.
+
+**Qué se reutilizó, medido en la segunda corrida:**
+
+| Job | Capas reutilizadas | Las que importan |
+|---|---|---|
+| `build-app` | 13 | `RUN pnpm build` (compila Next entero) y `RUN pnpm install --frozen-lockfile` (830 dependencias) |
+| `build-migrate` | 9 | la misma cadena `deps`, más los `COPY` de `src` y de la configuración |
+
+**Qué invalida una capa.** El orden del `Dockerfile` es lo que decide cuánto se reutiliza. Como
+`package.json` y `pnpm-lock.yaml` se copian **antes** que el código, un cambio de código no toca la
+capa de dependencias: se reutiliza el `pnpm install` y se rehace solo desde el `COPY . .`. Si en
+cambio agrego una dependencia, cambia el lockfile y se cae toda la cadena de ahí para abajo.
+
+**El `scope` por job no es opcional.** Los dos jobs usan `scope=app` y `scope=migrate`. Sin eso
+comparten el estante por defecto y **se pisan**: el último en terminar sobreescribe el cache del
+otro, y el síntoma es desconcertante — un job muestra `CACHED` y el otro no, y cuál cambia en cada
+corrida según quién terminó último. No falla, no avisa, y parece azar.
+
+Por eso las capas de `deps` aparecen cacheadas en los **dos** jobs pese a ser las mismas
+instrucciones: en la primera corrida cada uno las construyó por su cuenta y guardó su propia copia
+en su propio estante.
+
+**Qué pasa si el cache desaparece: nada se rompe, solo tarda más.** El cache es una optimización, no
+una dependencia — cada corrida puede construir todo desde cero y llegar al mismo resultado. GitHub
+además lo desaloja solo: expulsa entradas que no se usan hace una semana, y cuando el repositorio
+pasa su límite de almacenamiento borra las más viejas. Un pipeline que *necesita* el cache para
+funcionar está mal hecho, porque su resultado dependería de un estado que puede no existir — y eso
+es exactamente lo contrario de lo que un pipeline promete.
+
+Un detalle que sorprende: **la segunda corrida no tiene por qué ser más rápida.** Guardar el cache
+también cuesta, y cada corrida cae en una máquina distinta. Con una app de este tamaño la ganancia
+es chica; la evidencia de que el cache funciona es la palabra `CACHED` en el log, no el cronómetro.
+
+### Por qué el pipeline construye con mi Dockerfile en vez de compilar por su cuenta
+
+Porque si el workflow compilara con sus propios pasos (`pnpm install`, `pnpm build`) habría **dos
+definiciones de build** para la misma aplicación: la del workflow y la del `Dockerfile`. Dos
+definiciones que empiezan iguales y divergen, porque alguien va a cambiar una y olvidarse de la
+otra. El día que eso pase, el pipeline estaría verificando una compilación **distinta** de la que se
+publica y se despliega — y un pipeline que verifica algo que no es lo que sale a producción no sirve
+para nada.
+
+Construyendo con el `Dockerfile`, el artefacto que el pipeline verifica es **el mismo** que el TP2
+publica en el registry y el que el TP6 va a desplegar. Una sola definición, un solo lugar donde
+cambiarla.
+
+Consecuencia visible: en mi `ci.yml` no hay una sola línea de Node, de pnpm ni de Next. El workflow
+no sabe cómo se compila mi aplicación — eso lo sabe el `Dockerfile`. Por eso este mismo archivo le
+serviría a un compañero con otro stack cambiando únicamente el `context` y el `target`.
+
+### Problemas encontrados y cómo los solucioné
+
+- **Un Pull Request sin nada que comparar.** Para poder mostrar el `strict: true` en acción hacen
+  falta **dos** PRs abiertos a la vez: uno que se mergee y mueva `main`, y otro que quede
+  desactualizado. Creé la rama del segundo, la pusheé, y al abrir el PR GitHub me dijo *«There isn't
+  anything to compare»*. La causa: el cambio que le había hecho al README no llegó a commitearse
+  —`git commit -am` no commitea si no hay nada modificado, y no falla: avisa y sigue— así que la
+  rama subió idéntica a `main`. Una rama sin commits propios no tiene diferencias, y sin
+  diferencias no hay Pull Request posible.
+
+  Lo aproveché para algo mejor que un cambio de relleno: usé esa rama para agregar **el badge**, que
+  el práctico pide igual y también tiene que entrar por PR. Así el segundo PR dejó de ser
+  decorativo, y la demostración del `strict` salió sobre un cambio real.
+
+<!-- Agregá acá cualquier otro tropiezo: el buscador del gate que solo ofrece checks de los últimos
+     7 días, algún build que ande local y falle en el runner, etc. -->
+
+### Declaración de uso de IA
+
+Usé **Claude (Cowork)** para redactar el `.github/workflows/ci.yml` a partir del enunciado y de mi
+`Dockerfile` del TP2, para ordenar la secuencia de la demostración del gate, y para escribir el
+borrador de esta sección.
+
+**Cómo lo verifiqué:**
+
+- Corrí el pipeline yo y leí los logs: comprobé la palabra `CACHED` en los dos jobs de la segunda
+  corrida y conté cuántas capas reutilizó cada uno — los números de la tabla de arriba salen de ahí,
+  no de una estimación.
+- Verifiqué el gate haciéndolo actuar, no mirando la configuración: rompí el build a propósito
+  (PR #16), confirmé que `build-app` quedaba en rojo, que `build-migrate` seguía en verde y que aun
+  así el merge estaba bloqueado, lo arreglé y vi el PR destrabarse.
+- Comprobé el `strict: true` con dos PRs abiertos al mismo tiempo, viendo aparecer el cartel de rama
+  desactualizada después de mergear el primero.
+- Las protecciones de rama y los required status checks los configuré yo en la web. La IA no tuvo
+  acceso a mi cuenta de GitHub.
