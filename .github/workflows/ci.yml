@@ -1,7 +1,72 @@
 name: CI
-on: [pull_request]
+
+# Cuándo corre el pipeline.
+on:
+  pull_request:
+    branches: [main]   # el que hace el trabajo: verifica ANTES de que el código entre a main
+  push:
+    branches: [main]   # para que main tenga su propia corrida, que es la que lee el badge
+
 jobs:
-  build:
+  # ---------------------------------------------------------------------------
+  # La app: etapa `runner` del Dockerfile, la imagen que se publica y se despliega.
+  # ---------------------------------------------------------------------------
+  build-app:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Qué estamos verificando
+        env:
+          # En un pull_request, github.ref_name vale "<numero>/merge" y no dice nada.
+          # head_ref es el nombre real de la rama que se está verificando.
+          RAMA: ${{ github.head_ref || github.ref_name }}
+        run: echo "Rama $RAMA · commit $GITHUB_SHA"
+
+      - name: Bajar el código al runner
+        uses: actions/checkout@v6
+
+      - name: Preparar el constructor que sabe cachear
+        # El constructor de fábrica guarda las capas en el disco de la máquina, y
+        # esa máquina se destruye al terminar. Éste sabe exportarlas al almacén de
+        # GitHub. Sin este paso, el build falla al intentar exportar el cache.
+        uses: docker/setup-buildx-action@v4
+
+      - name: Construir la imagen de la aplicación
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: runner
+          push: false                # sólo se verifica que construya; publicar es otra cosa
+          tags: sistema-reservas-app:ci
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,mode=max,scope=app
+
+  # ---------------------------------------------------------------------------
+  # Las migraciones: etapa `migrator`, la segunda imagen que publica este proyecto.
+  # Job aparte y en paralelo: si se rompe esta etapa, quiero enterarme aunque la
+  # app compile bien.
+  # ---------------------------------------------------------------------------
+  build-migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Qué estamos verificando
+        env:
+          RAMA: ${{ github.head_ref || github.ref_name }}
+        run: echo "Rama $RAMA · commit $GITHUB_SHA"
+
+      - name: Bajar el código al runner
+        uses: actions/checkout@v6
+
+      - name: Preparar el constructor que sabe cachear
+        uses: docker/setup-buildx-action@v4
+
+      - name: Construir la imagen de migraciones
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: migrator
+          push: false
+          tags: sistema-reservas-migrate:ci
+          # scope PROPIO: sin esto los dos jobs comparten estante de cache y se
+          # pisan — el último en terminar borra el del otro.
+          cache-from: type=gha,scope=migrate
+          cache-to: type=gha,mode=max,scope=migrate
