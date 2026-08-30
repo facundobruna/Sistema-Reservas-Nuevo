@@ -1,4 +1,3 @@
-import { noExiste } from "./no-existe"
 import Link from "next/link";
 
 export default function Home() {
