@@ -28,7 +28,7 @@ services:
       retries: 10
 
   migrate:
-    image: ghcr.io/facundobruna/sistema-reservas-migrate:v0.1.0
+    image: ghcr.io/facundobruna/sistema-reservas-migrate:v0.2.0
     environment:
       DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
     depends_on:
@@ -37,7 +37,7 @@ services:
     restart: "no"
 
   app:
-    image: ghcr.io/facundobruna/sistema-reservas-app:v0.1.0
+    image: ghcr.io/facundobruna/sistema-reservas-app:v0.2.0
     restart: unless-stopped
     ports:
       - "${APP_PORT:-3000}:3000"
