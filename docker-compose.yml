@@ -41,7 +41,7 @@ services:
     build:
       context: .
       target: migrator
-    image: ghcr.io/facundobruna/sistema-reservas-migrate:v0.1.0
+    image: ghcr.io/facundobruna/sistema-reservas-migrate:v0.2.0
     environment:
       # `db` es el nombre del servicio de arriba. La red de compose lo resuelve
       # como si fuera un host: no hace falta saber ninguna IP.
@@ -58,7 +58,7 @@ services:
     build:
       context: .
       target: runner
-    image: ghcr.io/facundobruna/sistema-reservas-app:v0.1.0
+    image: ghcr.io/facundobruna/sistema-reservas-app:v0.2.0
     restart: unless-stopped
     ports:
       - "${APP_PORT:-3000}:3000"
