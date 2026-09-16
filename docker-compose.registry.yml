@@ -1,11 +1,16 @@
 # Misma topología que docker-compose.yml, pero BAJANDO las imágenes del registry
 # en vez de construirlas. Es lo que haría un entorno de QA o producción: no
-# compila, consume un artefacto ya construido y versionado.
+# compila, consume artefactos ya construidos y versionados.
 #
 #   cp .env.example .env
 #   docker compose -f docker-compose.registry.yml up -d
 #
 # No hace falta tener el código fuente: solo este archivo y el .env.
+#
+# Desde v0.3.0 son dos imágenes de aplicación (backend y frontend) en vez de
+# una: la app se separó en dos procesos. Las de v0.2.0 (`sistema-reservas-app`)
+# siguen existiendo en el registry y siguen funcionando — una imagen publicada
+# no se toca. Esto es una versión nueva, no un reemplazo de la anterior.
 
 name: sistema-reservas-registry
 
@@ -28,7 +33,7 @@ services:
       retries: 10
 
   migrate:
-    image: ghcr.io/facundobruna/sistema-reservas-migrate:v0.2.0
+    image: ghcr.io/facundobruna/sistema-reservas-migrate:v0.3.0
     environment:
       DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
     depends_on:
@@ -36,11 +41,11 @@ services:
         condition: service_healthy
     restart: "no"
 
-  app:
-    image: ghcr.io/facundobruna/sistema-reservas-app:v0.2.0
+  backend:
+    image: ghcr.io/facundobruna/sistema-reservas-backend:v0.3.0
     restart: unless-stopped
     ports:
-      - "${APP_PORT:-3000}:3000"
+      - "${API_PORT:-3100}:3000"
     environment:
       DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
       APP_URL: ${APP_URL}
@@ -62,7 +67,27 @@ services:
         - node
         - -e
         - "fetch('http://127.0.0.1:3000/api/v1/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
+  frontend:
+    image: ghcr.io/facundobruna/sistema-reservas-frontend:v0.3.0
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:3001"
+    environment:
+      BACKEND_INTERNAL_URL: http://backend:3000
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3001/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
       interval: 10s
       timeout: 5s
       retries: 5
