@@ -22,14 +22,18 @@ viajar en el repositorio, así que el arranque necesita ese paso manual.
 1. Levanta **Postgres** y espera a que acepte conexiones de verdad — el healthcheck, no solo que el
    contenedor exista.
 2. Corre las **migraciones** en un contenedor de un solo uso, que aplica el esquema y termina.
-3. Arranca la **app**, recién cuando las migraciones terminaron bien.
+3. Arranca el **backend** (la API), recién cuando las migraciones terminaron bien.
+4. Arranca el **frontend** (las pantallas), recién cuando el backend está healthy.
 
-La app queda en <http://localhost:3000>. Estado del sistema:
-<http://localhost:3000/api/v1/health>.
+La aplicación queda en <http://localhost:3000> — ése es el frontend, la puerta de entrada. La API
+queda además publicada aparte en <http://localhost:3100>, para poder pegarle directo con curl o
+Postman; el navegador no la usa. Estado del sistema:
+<http://localhost:3000/api/v1/health> (pasa por el frontend y lo responde el backend).
 
 ```bash
-docker compose ps          # qué está arriba y si está healthy
-docker compose logs -f app # seguir los logs de la app
+docker compose ps               # qué está arriba y si está healthy
+docker compose logs -f backend  # seguir los logs de la API
+docker compose logs -f frontend # seguir los logs de las pantallas
 ```
 
 ### Datos de demo
@@ -67,38 +71,64 @@ cp .env.example .env
 docker compose -f docker-compose.registry.yml up -d
 ```
 
-### Desarrollo local, sin contenerizar la app
+### Desarrollo local, sin contenerizar la aplicación
 
-Para iterar con hot reload conviene correr la app en la máquina y dejar solo la base en Docker.
-Requiere Node.js 22+ y pnpm (`corepack enable`):
+Para iterar con hot reload conviene correr las dos apps en la máquina y dejar solo la base en
+Docker. Requiere Node.js 22+ y pnpm (`corepack enable`). Son **dos terminales**, una por app:
 
 ```bash
 cp .env.example .env
 docker compose up -d db     # solo Postgres
+
+# terminal 1 — la API
+cd backend
 pnpm install
 pnpm db:migrate
 pnpm db:seed
 pnpm dev                    # http://localhost:3000
 pnpm worker                 # opcional, en otra terminal: notificaciones por email
+
+# terminal 2 — las pantallas
+cd frontend
+pnpm install
+pnpm dev                    # http://localhost:3001  ← acá entrás vos
 ```
 
-En este modo la app usa la `DATABASE_URL` del `.env`, que apunta a **`localhost`**. Adentro de
+Fuera de Docker se entra por **3001** (el frontend); adentro de compose el frontend queda publicado
+en 3000. En los dos casos la regla es la misma: el navegador nunca le pega directo a la API.
+
+En este modo el backend usa la `DATABASE_URL` del `.env`, que apunta a **`localhost`**. Adentro de
 compose el host es **`db`** (el nombre del servicio, que resuelve la red de compose) y el propio
 `docker-compose.yml` la pisa. Es la diferencia que más confunde al principio.
 
 Sin el worker corriendo, las reservas se crean normalmente — simplemente no salen los emails de
 confirmación y recordatorio hasta que lo levantes: quedan agendados en `notification`, esperando.
 
-## Stack y arquitectura de la imagen
+## Stack y arquitectura
 
 Node.js 22 · TypeScript · Next.js 16 (App Router) · PostgreSQL 17 · Drizzle ORM · pg-boss · Luxon ·
 Tailwind CSS 4 · Zod · React Query · pnpm.
 
-La app es un **monolito**: el App Router sirve las páginas (frontend) y las rutas de `src/app/api/**`
-son la API (backend). Compilan al mismo artefacto, así que hay **un solo `Dockerfile`**, con cuatro
-etapas: `deps` (instala dependencias) → `builder` (compila con `output: "standalone"`) → `migrator`
-(imagen de un solo uso con el toolchain, para migraciones y seed) y `runner` (la imagen que se
-publica: sin SDK, sin pnpm, sin código fuente y corriendo como usuario sin privilegios).
+El sistema son **dos aplicaciones independientes**, cada una con su `package.json`, su
+`node_modules`, su `Dockerfile` y su imagen:
+
+```
+navegador ──► frontend (3001)  ──/api──►  backend (3000)  ──►  PostgreSQL
+              pantallas                   API, sin UI
+```
+
+- **`backend/`** expone únicamente `/api/v1/**`. Es el único que conoce la base, el único con
+  `DATABASE_URL` y el único con `AUTH_SECRET`. Su `Dockerfile` tiene cuatro etapas: `deps` (instala
+  dependencias) → `builder` (compila con `output: "standalone"`) → `migrator` (imagen de un solo uso
+  con el toolchain, para migraciones y seed) y `runner` (la imagen que se publica: sin SDK, sin
+  pnpm, sin código fuente y corriendo como usuario sin privilegios).
+- **`frontend/`** sirve las pantallas y nada más: no tiene ORM ni driver de Postgres. Todo lo que
+  necesita se lo pide por HTTP al backend. Su `Dockerfile` tiene tres etapas — no hay `migrator`,
+  porque el esquema de la base no es asunto suyo.
+
+El navegador siempre entra por el frontend, que **reenvía a la API todo lo que empieza con `/api`**
+(ver `frontend/next.config.ts`). Es lo que mantiene la cookie de sesión en un único origen: si el
+navegador hablara directo con el backend haría falta CORS con credentials, `SameSite=None` y HTTPS.
 
 ## Restaurante de demo
 
@@ -126,7 +156,7 @@ La portada del panel es la **Agenda** (`/admin/{slug}`): lista de reservas del d
 
 ### Máquina de estados de una reserva
 
-`pending → confirmed → seated → completed`, con `cancelled`/`no_show` alcanzables desde cualquier estado anterior a `completed` (`src/lib/reservation/status-machine.ts`, transiciones inválidas se rechazan). Cancelar o marcar no-show libera la mesa al toque (borra las filas de `reservation_mesa`, la unidad vuelve a estar disponible); completar/no-show actualizan `visit_count`/`no_show_count` del cliente.
+`pending → confirmed → seated → completed`, con `cancelled`/`no_show` alcanzables desde cualquier estado anterior a `completed` (`backend/src/lib/reservation/status-machine.ts`, transiciones inválidas se rechazan). Cancelar o marcar no-show libera la mesa al toque (borra las filas de `reservation_mesa`, la unidad vuelve a estar disponible); completar/no-show actualizan `visit_count`/`no_show_count` del cliente.
 
 ### Mapa de mesas
 
@@ -154,7 +184,7 @@ Configurables por restaurante desde Configuración, **solo afectan el autoservic
 
 ## Notificaciones (confirmación + recordatorio por email)
 
-Al confirmarse una reserva (web, o manual desde el panel cuando no es un walk-in ya sentado) se agendan dos filas en `notification`: una confirmación inmediata y un recordatorio `reminderHoursBefore` horas antes (configurable en Configuración, default 3). El envío real lo hace `pnpm worker` (`src/jobs/worker.ts`), un proceso aparte sobre pg-boss (misma base de Postgres, sin Redis ni broker extra) que cada 1 minuto busca notificaciones vencidas y las manda con el `EmailSender` que ya existía (consola en local, Resend en prod).
+Al confirmarse una reserva (web, o manual desde el panel cuando no es un walk-in ya sentado) se agendan dos filas en `notification`: una confirmación inmediata y un recordatorio `reminderHoursBefore` horas antes (configurable en Configuración, default 3). El envío real lo hace `pnpm worker` (`backend/src/jobs/worker.ts`), un proceso aparte sobre pg-boss (misma base de Postgres, sin Redis ni broker extra) que cada 1 minuto busca notificaciones vencidas y las manda con el `EmailSender` que ya existía (consola en local, Resend en prod).
 
 - Si el envío falla, reintenta en las siguientes corridas hasta 5 veces y después queda `failed` — no reintenta para siempre.
 - Si la reserva no tiene email cargado (es opcional para el comensal), la notificación se marca `failed` directo, sin intentarlo.
@@ -214,6 +244,11 @@ Tres ajustes finos a `computeAvailability`, siempre como lógica pura y testeada
 
 ## Scripts
 
+Todos se corren **adentro de `backend/`**, salvo `dev`, `build`, `start` y `lint`, que existen
+también en `frontend/` con el mismo nombre. No hay scripts en la raíz del repositorio: cada
+aplicación se maneja sola.
+
+
 | Comando | Qué hace |
 |---|---|
 | `pnpm dev` | Levanta la app en modo desarrollo |
@@ -229,72 +264,89 @@ Tres ajustes finos a `computeAvailability`, siempre como lógica pura y testeada
 
 ## Estructura
 
+Dos aplicaciones, cada una con su `package.json`, su lockfile y su `Dockerfile`. No comparten
+código: lo único que las une es el contrato HTTP.
+
 ```
-src/
-  app/            # Next.js App Router
-  db/
-    schema.ts       # Esquema completo en Drizzle (enums + 19 tablas)
-    migrations/      # SQL: extensiones, tablas, constraint sin_solape (EXCLUDE)
-    client.ts        # Cliente Drizzle (pg Pool)
-    migrate.ts        # Corredor de migraciones
-    seed.ts           # Seed de demo
-    mesa.ts            # createMesa/updateMesa/deleteMesa: mantienen su seating_unit 'single' en sincro
-    mesa-block.ts      # createMesaBlock/deleteMesaBlock: bloquear/desbloquear una mesa física para una fecha
-    timeline.ts        # getTimeline: ocupación por mesa + bloqueos de un día, para la grilla del panel
-    seating-unit.ts   # createCombo/updateCombo: seating_unit 'combo' + sus mesas enlazadas
-    restaurant.ts     # getRestaurantBySlug
-    onboarding.ts     # createRestaurantOnboarding: alta self-serve (restaurant + zona + turnos + owner) en una transacción
-    notification.ts   # scheduleReservationNotifications + scheduleStaffAlert + findDue/markSent/markSkipped/recordFailure
-    calendar.ts        # getCalendarFeed: reservas activas en ventana rolling, para el feed iCal del restaurante
-    waitlist.ts        # joinWaitlist (idempotente) + findActiveWaitingEntries/markNotified/markBooked/expirePast
-    subscription.ts    # createTrialSubscription + evaluatePanelAccess (única fuente de verdad del bloqueo)
-    audit.ts           # logAudit: toda acción de superadmin
-    create-superadmin.ts # Script (`pnpm superadmin:create`): sin alta pública
-  app/api/v1/
-    auth/staff/        # login (scoped por slug) / logout
-    auth/superadmin/    # login / logout (sesión separada de staff)
-    admin/             # CRUD REST: zones, mesas, seating-units, services, shifts, exceptions, settings
-                        # + reservations (agenda, walk-in, cambio de estado, reasignar mesa), customers (buscar + export CSV), stats
-                        # + timeline (ocupación por mesa de un día) + mesa-blocks (bloquear/desbloquear una mesa)
-                        # + calendar-token/regenerate (invalida el link del feed iCal) + billing/ (suscripción, checkout)
-    onboarding/        # POST público: alta self-serve de restaurante + owner, abre sesión
-    superadmin/         # tenants (listar/detalle/suspender/reactivar/impersonar/feature-flags), stats (MRR/altas/churn)
-    webhooks/mercadopago/ # Notificaciones de Mercado Pago sobre cambios de estado de una suscripción
-  app/admin/[slug]/    # Panel: login público + billing (fuera del gating, para poder pagar) + rutas protegidas
-                        # (grupo (protected)): agenda (portada), timeline (mapa de mesas), share, zones, mesas,
-                        # seating-units, services, shifts, exceptions, customers, stats, settings — bloqueadas si la
-                        # suscripción no está al día
-  app/onboarding/      # Wizard público de alta de restaurante (3 pasos)
-  app/superadmin/      # login público + dashboard protegido (tenants, métricas, detalle de tenant)
-  app/api/v1/r/[slug]/             # GET público (info) · availability/ · reservations/ (+[id], modificar/cancelar) ·
-                                    # waitlist/ · calendar.ics (feed de calendario del restaurante, token en la URL)
-  app/api/v1/auth/diner/            # magic-link (pedir) · verify (canjear)
-  app/api/v1/me/reservations/       # Reservas del comensal logueado (todas las restaurantes)
-  app/r/[slug]/                    # Wizard de reserva (el flujo del comensal) + CTA de lista de espera si no hay horarios
-  app/me/                          # Login por magic link + lista de reservas, con cancelar/modificar inline
-  lib/
-    availability/    # computeAvailability + resolveSlot (puros, sin DB) + loadAvailabilityInput (glue con Postgres)
-    reservation/     # bookReservation: único punto de escritura, transaccional, best-fit + retry de deadlocks
-                      # status-machine.ts: transiciones válidas de estado de una reserva
-                      # notification-email.ts / staff-alert-email.ts / ics.ts: contenido de los emails y los .ics
-                      # action-token.ts: token firmado de confirmar/cancelar por email, vence con la reserva
-                      # calendar-token.ts: token firmado del feed iCal, vencimiento largo + versión para invalidar
-    email/           # Interfaz EmailSender (attachments incluidos; console-sender.ts local, resend-sender.ts prod)
-    billing/         # mercadopago.ts: checkout, fetch de una suscripción, verificación de firma del webhook
-    auth/            # signed-token.ts (HMAC compartido) · session.ts (staff) · diner-session.ts · magic-link.ts
-                      # superadmin-session.ts · require-staff.ts · require-superadmin.ts
-    i18n/            # Copy ES/EN + interpolate() para templates con {variables}
-    validation/      # Schemas zod compartidos (admin.ts, auth.ts, booking.ts, phone.ts, onboarding.ts, superadmin.ts)
-  jobs/
-    worker.ts        # Proceso pg-boss aparte (`pnpm worker`): confirmación/recordatorio/avisos al staff por email,
-                      # lista de espera, no-show automático y reconciliación diaria de suscripciones contra Mercado Pago
-tests/
-  unit/             # Motor de disponibilidad (lógica pura) — los 7 casos obligatorios de la spec + resolveSlot
-  integration/      # bookReservation bajo concurrencia real contra Postgres
-docs/
-  friction.md        # Conteo de toques del flujo de reserva — presupuesto, no crece sin discutirlo
-docker-compose.yml   # Postgres 17 local
-.env.example         # Todas las variables necesarias
+backend/                 # la API. Next.js con SOLO route handlers: ninguna pantalla.
+  Dockerfile              # 4 etapas: deps → builder → (migrator | runner)
+  src/
+    app/api/v1/
+      health/              # GET: estado del sistema (incluye un select 1 contra la base)
+      auth/staff/          # login (scoped por slug) / logout / me
+      auth/superadmin/     # login / logout / me (sesión separada de staff)
+      auth/diner/          # magic-link (pedir) · verify (canjear)
+      admin/               # CRUD REST: zones, mesas, seating-units, services, shifts, exceptions, settings
+                            # + reservations (agenda, walk-in, cambio de estado, reasignar mesa)
+                            # + customers (buscar + export CSV), stats, timeline, mesa-blocks
+                            # + calendar-token/regenerate + billing/ + panel-access (veredicto de acceso al panel)
+      r/[slug]/            # GET público (info) · availability/ · reservations/ (+[id], modificar/cancelar) ·
+                            # waitlist/ · calendar.ics (feed de calendario, token en la URL)
+      me/reservations/     # Reservas del comensal logueado (de todos los restaurantes)
+      onboarding/          # POST público: alta self-serve de restaurante + owner, abre sesión
+      superadmin/          # tenants (listar/detalle/suspender/reactivar/impersonar/feature-flags), stats
+      webhooks/mercadopago/ # Notificaciones de Mercado Pago sobre cambios de estado de una suscripción
+    db/
+      schema.ts             # Esquema completo en Drizzle (enums + 19 tablas)
+      migrations/           # SQL: extensiones, tablas, constraint sin_solape (EXCLUDE)
+      client.ts             # Cliente Drizzle (pg Pool), de inicialización perezosa
+      migrate.ts            # Corredor de migraciones
+      seed.ts               # Seed de demo
+      mesa.ts               # createMesa/updateMesa/deleteMesa: mantienen su seating_unit 'single' en sincro
+      mesa-block.ts         # bloquear/desbloquear una mesa física para una fecha
+      timeline.ts           # getTimeline: ocupación por mesa + bloqueos de un día, para la grilla del panel
+      seating-unit.ts       # createCombo/updateCombo: seating_unit 'combo' + sus mesas enlazadas
+      restaurant.ts         # getRestaurantBySlug + getPublicRestaurantInfo
+      onboarding.ts         # createRestaurantOnboarding: alta self-serve, en una transacción
+      notification.ts       # scheduleReservationNotifications + scheduleStaffAlert + findDue/markSent/...
+      calendar.ts           # getCalendarFeed: reservas activas en ventana rolling, para el feed iCal
+      waitlist.ts           # joinWaitlist (idempotente) + findActiveWaitingEntries/markNotified/...
+      subscription.ts       # createTrialSubscription + evaluatePanelAccess (única fuente de verdad del bloqueo)
+      audit.ts              # logAudit: toda acción de superadmin
+      create-superadmin.ts  # Script (`pnpm superadmin:create`): sin alta pública
+    lib/
+      availability/         # computeAvailability + resolveSlot (puros, sin DB) + loadAvailabilityInput (glue)
+      reservation/          # bookReservation: único punto de escritura, transaccional, best-fit + retry de deadlocks
+                             # status-machine.ts · notification-email.ts · staff-alert-email.ts · ics.ts
+                             # action-token.ts (confirmar/cancelar por email) · calendar-token.ts (feed iCal)
+      email/                # Interfaz EmailSender (console-sender.ts local, resend-sender.ts prod)
+      billing/              # mercadopago.ts: checkout, fetch de suscripción, verificación de firma del webhook
+      auth/                 # signed-token.ts (HMAC) · session.ts · diner-session.ts · superadmin-session.ts
+                             # magic-link.ts · require-staff.ts · require-superadmin.ts
+      validation/           # Schemas zod (admin, auth, booking, phone, onboarding, superadmin)
+    jobs/
+      worker.ts             # Proceso pg-boss aparte (`pnpm worker`): emails, lista de espera, no-show
+                             # automático y reconciliación diaria de suscripciones contra Mercado Pago
+  tests/
+    unit/                   # Motor de disponibilidad (lógica pura) — los 7 casos de la spec + resolveSlot
+    integration/            # bookReservation bajo concurrencia real contra Postgres
+
+frontend/                # las pantallas. Sin ORM, sin driver de Postgres, sin AUTH_SECRET.
+  Dockerfile              # 3 etapas: deps → builder → runner
+  next.config.ts          # reenvía /api al backend (BACKEND_INTERNAL_URL)
+  src/
+    app/
+      r/[slug]/            # Wizard de reserva (el flujo del comensal) + CTA de lista de espera
+                            # + reservations/[id]/cancel (se llega desde el email, con token firmado)
+      admin/[slug]/        # Panel: login + billing (fuera del gating, para poder pagar) + rutas protegidas
+                            # (grupo (protected)): agenda, timeline, share, zones, mesas, combos, services,
+                            # shifts, exceptions, customers, stats, settings
+      me/                  # Login por magic link + lista de reservas, con cancelar/modificar inline
+      onboarding/          # Wizard público de alta de restaurante (3 pasos)
+      superadmin/          # login público + dashboard protegido (tenants, métricas, detalle de tenant)
+      style-guide/         # Referencia viva de los tokens y componentes de diseño
+    components/           # Componentes de UI reutilizables (shadcn/ui restyleado)
+    lib/
+      api/server.ts        # Único cliente HTTP de los Server Components (reenvía la cookie al backend)
+      api/types.ts         # Formas de las respuestas de la API, escritas a mano de este lado
+      auth/                # require-staff.ts · require-superadmin.ts (preguntan quién es al backend)
+      i18n/                # Copy ES/EN + interpolate() para templates con {variables}
+      validation/phone.ts  # Copia deliberada: valida el formato antes de enviar (UX), el backend revalida
+
+docker-compose.yml       # db + migrate + backend + frontend
+docker-compose.registry.yml # lo mismo, bajando las imágenes del registry en vez de construirlas
+docs/friction.md         # Conteo de toques del flujo de reserva — presupuesto, no crece sin discutirlo
+.env.example             # Todas las variables necesarias
 ```
 
 ## Notas de arquitectura
@@ -303,17 +355,17 @@ docker-compose.yml   # Postgres 17 local
 - **Anti doble-booking:** `reservation_mesa` tiene un constraint `EXCLUDE USING gist (mesa_id WITH =, periodo WITH &&)` sobre un rango semiabierto (`tstzrange(..., '[)')`) — dos reservas que se tocan en el borde (ej. 20:00–21:30 y 21:30–23:00) no cuentan como solapadas, pero cualquier solape real es rechazado a nivel de base de datos incluso bajo concurrencia.
 - **Mesas y seating units:** el motor de disponibilidad opera siempre sobre `seating_unit`. Cada mesa genera automáticamente su unidad `single`; los combos (`kind='combo'`) enlazan varias mesas para grupos grandes. Un trigger de Postgres (`mesa_delete_cleanup_single_unit`) borra la unidad `single` de una mesa al borrarse esta — por cualquier camino, incluida la cascada al borrar su zona — para que nunca quede una unidad "fantasma" sin mesas reales que el motor pueda ofrecer como disponible.
 - Identificadores de tablas/columnas siguen el vocabulario de la spec (mezcla inglés + `mesa`, `periodo`, `sin_solape`) — no se traducen.
-- **Motor de disponibilidad:** `computeAvailability` es una función pura (sin DB, en `src/lib/availability/compute-availability.ts`), testeada con Vitest. Opera sobre instantes absolutos (UTC) calculados en el timezone del restaurante vía Luxon; el `periodo` semiabierto se respeta también acá (dos turnos que se tocan en el borde no se consideran solapados). `GET /api/v1/r/{slug}/availability?date=&partySize=&zoneId=` arma el input desde Postgres (`loadAvailabilityInput`) y llama a la función pura — la separación es deliberada para que la lógica de negocio se pueda testear sin base de datos.
+- **Motor de disponibilidad:** `computeAvailability` es una función pura (sin DB, en `backend/src/lib/availability/compute-availability.ts`), testeada con Vitest. Opera sobre instantes absolutos (UTC) calculados en el timezone del restaurante vía Luxon; el `periodo` semiabierto se respeta también acá (dos turnos que se tocan en el borde no se consideran solapados). `GET /api/v1/r/{slug}/availability?date=&partySize=&zoneId=` arma el input desde Postgres (`loadAvailabilityInput`) y llama a la función pura — la separación es deliberada para que la lógica de negocio se pueda testear sin base de datos.
 - **Reserva sin doble-booking bajo concurrencia:** `bookReservation` revalida el horario server-side (nunca confía en lo que mandó el cliente) vía `resolveSlot`, y prueba las unidades candidatas en orden best-fit, una transacción por intento. Bajo carga real, Postgres puede resolver dos transacciones que compiten por la misma mesa de dos formas: una viola limpio el `EXCLUDE` (`23P01`, la unidad está tomada) o el detector de deadlocks aborta una de las dos (`40P01`, no dice nada sobre disponibilidad) — `bookReservation` reintenta ante lo segundo y solo pasa a la siguiente unidad ante lo primero. El test de integración de concurrencia lo ejercita de verdad contra Postgres y fue el que hizo aparecer el caso del deadlock.
 - **Reservas confirman al toque:** no hay paso de aprobación manual en ningún punto de la spec — `bookReservation` crea la reserva en estado `confirmed` directamente (no `pending`), consistente con la promesa de cero fricción.
-- **Notificaciones:** `notification` es la fuente de verdad (`scheduled → sent/failed`, con `attempts` para acotar reintentos); el worker de pg-boss es "solo" el proceso que la vacía cada 1 minuto, no dueño del estado. Esto mantiene la lógica de negocio (cuándo cancelar un recordatorio, cuándo agendar uno nuevo) en el mismo lugar que el resto del dominio (`src/db/`), no dispersa en callbacks de la cola.
+- **Notificaciones:** `notification` es la fuente de verdad (`scheduled → sent/failed`, con `attempts` para acotar reintentos); el worker de pg-boss es "solo" el proceso que la vacía cada 1 minuto, no dueño del estado. Esto mantiene la lógica de negocio (cuándo cancelar un recordatorio, cuándo agendar uno nuevo) en el mismo lugar que el resto del dominio (`backend/src/db/`), no dispersa en callbacks de la cola.
 - **Impersonar sin mecanismo aparte:** el superadmin no tiene una forma especial de "ver como" un restaurante — simplemente abre una `staff_session` normal para el owner de ese tenant, marcada con `impersonatedBy`. Reutiliza el 100% de la autenticación/autorización del panel ya existente en vez de inventar un camino paralelo, que sería más superficie para tener mal.
-- **Facturación separada del dominio operativo:** `subscription` es una tabla aparte de `restaurant` a propósito (no columnas sueltas ahí) — billing es un concern de la plataforma, no algo que el restaurante configura. `evaluatePanelAccess()` (`src/db/subscription.ts`) es la única función que decide si el panel se bloquea; se llama una sola vez, desde el layout protegido — nunca desde el lado del comensal.
+- **Facturación separada del dominio operativo:** `subscription` es una tabla aparte de `restaurant` a propósito (no columnas sueltas ahí) — billing es un concern de la plataforma, no algo que el restaurante configura. `evaluatePanelAccess()` (`backend/src/db/subscription.ts`) es la única función que decide si el panel se bloquea; se llama una sola vez, desde el layout protegido — nunca desde el lado del comensal.
 - **Ambigüedad de fecha en horarios de madrugada:** al permitir turnos que cruzan medianoche apareció un bug real: `bookReservation` inferís la `date` a re-validar a partir del propio instante (`startsAt` en el timezone del restaurante), pero un horario de madrugada puede pertenecer al turno de HOY (uno que arranca temprano) o ser la cola de un turno de AYER que cruzó la medianoche — `dayOfWeek` queda anclado al día en que el turno arranca, no al día calendario del instante. La reserva se probaba contra la fecha equivocada y fallaba con `slot_unavailable` pese a que el horario sí estaba disponible. Se resolvió probando las dos fechas candidatas (la del instante y la anterior) antes de dar por no disponible.
-- **Branding por tenant:** `restaurant.settings.accentColor` pisa el acento en `/r/{slug}` (ver `src/app/r/[slug]/page.tsx`). Los tokens derivados del acento (`--accent-subtle`, `--ring`, etc.) usan `color-mix()` — y como `color-mix()` se resuelve en el punto donde CADA custom property se declara (no se "recalcula en cascada" al pisar solo `--accent` en un elemento anidado), hay que redeclarar todos los derivados juntos con el color literal del tenant, no alcanza con pisar `--accent` sola.
+- **Branding por tenant:** `restaurant.settings.accentColor` pisa el acento en `/r/{slug}` (ver `backend/src/app/r/[slug]/page.tsx`). Los tokens derivados del acento (`--accent-subtle`, `--ring`, etc.) usan `color-mix()` — y como `color-mix()` se resuelve en el punto donde CADA custom property se declara (no se "recalcula en cascada" al pisar solo `--accent` en un elemento anidado), hay que redeclarar todos los derivados juntos con el color literal del tenant, no alcanza con pisar `--accent` sola.
 - **Bloqueo de mesa, sin tocar el motor puro:** `mesa_block` bloquea una **mesa física** (no una seating unit), para que un combo que la incluya quede inhabilitado automáticamente — el motor ya chequea cada mesa de una unidad una por una. `loadAvailabilityInput` traduce cada bloqueo en una reserva sintética que ocupa esa mesa el día local completo (`partySize:0`, para no distorsionar el pacing); `computeAvailability`/`isUnitFree` no necesitaron ningún cambio, ya sabían tratar "mesa ocupada". Como es una restricción física, no una política de autoservicio, se resuelve en la capa compartida que usan tanto el comensal como `bookReservation` — a diferencia de la ventana de reserva/tope de grupo de M13, que son online-only.
 - **Bug real que encontró esta feature — `resolveSlot` no pre-filtraba por ocupación:** antes de M14, `resolveSlot` solo pre-chequeaba `isUnitFree` cuando había `bufferMin > 0`; para el resto confiaba en que el `EXCLUDE` de Postgres (`sin_solape`) rechazara cualquier solapamiento real al intentar el insert. Eso es válido para una reserva real (tiene una fila en `reservation_mesa` que la base puede rechazar), pero un bloqueo de mesa es una ocupación sintética *sin ninguna fila real* — no hay ningún constraint que lo capture, así que `bookReservation` terminaba sentando una reserva nueva en una mesa bloqueada. Se corrigió haciendo que `resolveSlot` filtre siempre por `isUnitFree` antes de devolver las unidades candidatas. No afecta la garantía de concurrencia (el test de la unidad en disputa sigue pasando): el filtro usa una foto de `activeReservations` leída en ese instante, así que dos requests concurrentes por la misma mesa real siguen viéndola libre en su foto y siguen dependiendo del `EXCLUDE` de la base para desempatar — el pre-filtro solo evita intentar una unidad obviamente tomada (incluidos los bloqueos, que no tienen otra forma de ser detectados).
 - **Avisos al staff, mismo motor que confirmación/recordatorio:** `staff_new`/`staff_cancelled` son dos tipos más de `notification`, no un sistema aparte — se agendan para "ahora" (igual que la confirmación) y el worker los procesa en la misma pasada, con los mismos reintentos/`failed`. Se agendan desde los route handlers del comensal (POST reservar, los dos caminos de cancelar), nunca desde `bookReservation`/`cancelReservation` — esas funciones no saben ni les importa quién las llamó, la decisión de "esto amerita avisarle al restaurante" es del caller, no del motor de reservas.
 - **Token del feed de calendario, mismo primitivo que los links de email, pensado para durar:** `encodeSignedToken` exige un `exp` numérico (no hay modo "sin vencimiento"), así que el token del feed iCal usa una fecha 50 años en el futuro en vez de inventar un segundo mecanismo de firma solo para este caso. La invalidación ("regenerar link") no rota el secreto `AUTH_SECRET` (afectaría todos los tokens de la app) ni guarda el token en la base — solo sube `settings.calendarTokenVersion`, incluido en el payload firmado; el feed lo compara contra el valor actual y basta con que no coincida para rechazarlo.
 - **Links de acción por email, `GET` seguro vs `POST` destructivo:** confirmar (no destructivo) ejecuta directo en el `GET` del link; cancelar (destructivo) nunca ejecuta en un `GET` — requiere aterrizar en una página intermedia y un clic explícito que dispara el `POST`. La razón concreta es que clientes de email y escaneres de seguridad pre-visitan links automáticamente apenas llega el mail, y eso cancelaría reservas solas si "cancelar" fuera un simple `GET`. El endpoint de cancelar reutiliza 100% `cancelReservation` — ninguna lógica de negocio nueva, solo el camino de entrada cambia.
-- **Reglas de reserva online son un filtro de la capa de caller, no del motor:** igual que `isPast`, la ventana de anticipación (`minAdvanceMinutes`/`maxAdvanceDays`) se implementa como un filtro aparte (`src/lib/availability/now-filter.ts`) aplicado sobre el resultado de `computeAvailability`, que sigue sin ningún concepto de "ahora" ni de reglas de negocio por tenant. El tope de grupo (`maxOnlinePartySize`) y la ventana se chequean explícitamente en los route handlers del flujo del comensal (creación y modificación), nunca dentro de `bookReservation` — a diferencia de `isPast`, que sí es universal, estas dos son reglas del autoservicio online exclusivamente, y un walk-in/reserva manual del panel no debe verse limitado por algo que el propio staff está decidiendo a mano.
+- **Reglas de reserva online son un filtro de la capa de caller, no del motor:** igual que `isPast`, la ventana de anticipación (`minAdvanceMinutes`/`maxAdvanceDays`) se implementa como un filtro aparte (`backend/src/lib/availability/now-filter.ts`) aplicado sobre el resultado de `computeAvailability`, que sigue sin ningún concepto de "ahora" ni de reglas de negocio por tenant. El tope de grupo (`maxOnlinePartySize`) y la ventana se chequean explícitamente en los route handlers del flujo del comensal (creación y modificación), nunca dentro de `bookReservation` — a diferencia de `isPast`, que sí es universal, estas dos son reglas del autoservicio online exclusivamente, y un walk-in/reserva manual del panel no debe verse limitado por algo que el propio staff está decidiendo a mano.

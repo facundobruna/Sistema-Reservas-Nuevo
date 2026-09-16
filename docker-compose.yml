@@ -1,8 +1,12 @@
-# Sistema completo: base de datos + migraciones + aplicación.
-# Arranque en una máquina limpia:  cp .env.example .env  &&  docker compose up -d
+# Sistema completo: base de datos + migraciones + backend + frontend.
+# Arranque en una máquina limpia:  cp .env.example .env  &&  docker compose up -d --build
 #
-# Esta variante CONSTRUYE las imágenes desde el Dockerfile. La que las BAJA del
-# registry está en docker-compose.registry.yml.
+# Esta variante CONSTRUYE las imágenes desde los dos Dockerfiles. La que las
+# BAJA del registry está en docker-compose.registry.yml.
+#
+# Desde este TP son CUATRO servicios y no tres: la aplicación dejó de ser un
+# solo proceso. `backend` expone la API y es el único que habla con la base;
+# `frontend` sirve las pantallas y consume la API por la red interna.
 
 name: sistema-reservas
 
@@ -20,14 +24,14 @@ services:
       POSTGRES_DB: ${DB_NAME}
     ports:
       # Publicado solo para poder inspeccionar la base desde la máquina host.
-      # La app NO usa este puerto: le habla a `db` por la red de compose.
+      # El backend NO usa este puerto: le habla a `db` por la red de compose.
       - "${DB_PORT:-5432}:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
       # `depends_on` solo espera a que el contenedor ARRANQUE. Postgres tarda
       # unos segundos más en aceptar conexiones, así que sin este healthcheck
-      # la app arranca contra una base que todavía no escucha y se cae.
+      # el backend arranca contra una base que todavía no escucha y se cae.
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 5s
       timeout: 5s
@@ -35,13 +39,13 @@ services:
 
   # --------------------------------------------------------------------------
   # Migraciones. No es un servicio: corre una vez, aplica el esquema y termina.
-  # La app espera a que termine BIEN antes de arrancar.
+  # Sale del Dockerfile del backend, que es quien conoce el esquema.
   # --------------------------------------------------------------------------
   migrate:
     build:
-      context: .
+      context: ./backend
       target: migrator
-    image: ghcr.io/facundobruna/sistema-reservas-migrate:v0.2.0
+    image: ghcr.io/facundobruna/sistema-reservas-migrate:v0.3.0
     environment:
       # `db` es el nombre del servicio de arriba. La red de compose lo resuelve
       # como si fuera un host: no hace falta saber ninguna IP.
@@ -52,21 +56,28 @@ services:
     restart: "no"
 
   # --------------------------------------------------------------------------
-  # La aplicación: Next.js sirve el frontend y la API en el mismo proceso.
+  # Backend: la API. Es el único contenedor con credenciales de base de datos y
+  # con AUTH_SECRET.
   # --------------------------------------------------------------------------
-  app:
+  backend:
     build:
-      context: .
+      context: ./backend
       target: runner
-    image: ghcr.io/facundobruna/sistema-reservas-app:v0.2.0
+    image: ghcr.io/facundobruna/sistema-reservas-backend:v0.3.0
     restart: unless-stopped
     ports:
-      - "${APP_PORT:-3000}:3000"
+      # Publicado aparte del frontend para poder pegarle directo a la API con
+      # curl o Postman. El navegador NO usa este puerto: entra siempre por el
+      # frontend (ver el reenvío /api en frontend/next.config.ts).
+      - "${API_PORT:-3100}:3000"
     environment:
       # Ojo: esta DATABASE_URL pisa a la del .env a propósito. La del .env
       # apunta a localhost (sirve para `pnpm dev` fuera de Docker); adentro de
       # la red de compose el host es `db`.
       DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      # Los links que arma el backend (reserva, magic link, cancelación) tienen
+      # que abrir en el FRONTEND, que es donde navega la persona: por eso APP_URL
+      # apunta al puerto del frontend y no al suyo propio.
       APP_URL: ${APP_URL}
       AUTH_SECRET: ${AUTH_SECRET}
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-console}
@@ -86,7 +97,40 @@ services:
         - node
         - -e
         - "fetch('http://127.0.0.1:3000/api/v1/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
+  # --------------------------------------------------------------------------
+  # Frontend: las pantallas. Sin base, sin ORM y sin AUTH_SECRET — si alguien
+  # entra a este contenedor no encuentra con qué firmar una sesión ni con qué
+  # conectarse a Postgres.
+  # --------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      target: runner
+    image: ghcr.io/facundobruna/sistema-reservas-frontend:v0.3.0
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:3001"
+    environment:
+      # A dónde reenvía /api. `backend` es el nombre del servicio de arriba: la
+      # red de compose lo resuelve sola, igual que `db` para el backend.
+      BACKEND_INTERNAL_URL: http://backend:3000
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      # Chequea su propia portada, no la API: este contenedor está sano si
+      # sirve HTML. Si el backend se cae, el enfermo es el backend — que tiene
+      # su propio healthcheck — y no tiene sentido marcar a los dos.
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3001/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
       interval: 10s
       timeout: 5s
       retries: 5

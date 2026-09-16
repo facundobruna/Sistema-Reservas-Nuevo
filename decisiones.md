@@ -522,3 +522,4 @@ borrador de esta sección.
   desactualizada después de mergear el primero.
 - Las protecciones de rama y los required status checks los configuré yo en la web. La IA no tuvo
   acceso a mi cuenta de GitHub.
+

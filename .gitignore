@@ -1,7 +1,9 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+# Sin barra inicial: el patrón vale en cualquier nivel. Desde que el repo se
+# partió en backend/ y frontend/, `/node_modules` solo habría cubierto la raíz.
+node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -11,14 +13,14 @@
 !.yarn/versions
 
 # testing
-/coverage
+coverage
 
 # next.js
-/.next/
-/out/
+.next/
+out/
 
 # production
-/build
+build
 
 # misc
 .DS_Store
