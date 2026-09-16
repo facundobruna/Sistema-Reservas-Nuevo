@@ -681,6 +681,34 @@ casualmente miran lo mismo.
    La lección es la misma que el `docker compose up` sin `--build` del TP2: cuando el comportamiento
    no coincide con el código, primero hay que confirmar que lo que está corriendo es el código.
 
+5. **El pipeline se rompió por algo que yo no cambié, y por algo que sí.** El primer PR de la
+   separación falló en los tres jobs, todos en el mismo paso: `pnpm install --frozen-lockfile`,
+   con `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` y 17 paquetes rechazados.
+
+   Hay dos causas encadenadas. La primera es mía: al partir el proyecto en dos generé dos
+   `pnpm-lock.yaml` **desde cero** en vez de partir del que ya existía. Separar una app no debería
+   actualizar ninguna dependencia, pero eso fue exactamente lo que pasó: `pnpm` resolvió las
+   versiones más nuevas de las transitivas, y algunas —`rolldown`, `electron-to-chromium`— se
+   habían publicado *esa misma mañana*.
+
+   La segunda no es mía: el `Dockerfile` decía `RUN corepack enable` sin fijar ninguna versión, así
+   que bajaba **la última pnpm que hubiera ese día**. Ese día era pnpm 12, que trae activada por
+   defecto una política de cadena de suministro (`minimumReleaseAge`): rechaza paquetes publicados
+   en las últimas 24 horas, porque es la ventana en la que se detectan casi todos los paquetes
+   comprometidos. La política hizo bien su trabajo. El problema es que yo le había dado de comer un
+   lockfile recién horneado.
+
+   Lo arreglé por las dos puntas: restauré las resoluciones del lockfile original en ambas
+   aplicaciones (`rolldown` volvió de 1.2.9 a 1.1.4, `electron-to-chromium` de 1.5.430 a 1.5.383 —
+   las versiones que ya venían funcionando) y **fijé la versión de pnpm** con el campo
+   `packageManager` en los dos `package.json`. Sin ese campo, el mismo commit puede construir bien
+   hoy y fallar mañana sin que nadie toque una línea: es la misma idea de las imágenes con tag
+   inmutable del TP2, aplicada a la herramienta que construye.
+
+   Para verificarlo no me confié del build local: instalé pnpm 12.4.2 en la máquina —la misma que
+   usó el runner— y corrí `pnpm install --frozen-lockfile` contra los dos lockfiles, con la
+   política activa. Los dos pasaron.
+
 ### Cómo lo verifiqué
 
 No alcanza con que compile. Levanté las dos aplicaciones contra un Postgres real, con el seed de
