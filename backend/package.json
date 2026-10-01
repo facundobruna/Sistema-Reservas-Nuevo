@@ -16,7 +16,9 @@
     "superadmin:create": "tsx src/db/create-superadmin.ts",
     "worker": "tsx src/jobs/worker.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:unit": "vitest run tests/unit",
+    "test:coverage": "vitest run tests/unit --coverage"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
@@ -35,6 +37,7 @@
     "@types/pg": "^8.20.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitest/coverage-v8": "4.1.9",
     "dotenv": "^17.4.2",
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",
