@@ -728,8 +728,61 @@ un test invalidaría el cache de la imagen aunque el código no cambie.
 
 <!-- PENDIENTE-URL: corrida con el reporte de cobertura del frontend (summary + artefacto descargable) -->
 
+### El umbral de cobertura: número, métrica y por qué
+
+**El umbral es un piso: la medición de hoy, redondeada hacia abajo, en líneas y en ramas.**
+
+| | Líneas medidas | Ramas medidas | Umbral de líneas | Umbral de ramas |
+|---|---|---|---|---|
+| Backend | 60,41 % (145/240) | 53,93 % (96/178) | **60 %** | **53 %** |
+| Frontend | 96,55 % (28/29) | 95,45 % (21/22) | **96 %** | **95 %** |
+
+El número de **ramas** que me da hoy es 53,93 % en el backend y 95,45 % en el frontend, y lo reporto
+siempre, no solo cuando es el que frena.
+
+**Por qué ese criterio y no un 80 %.** Un número elegido sin medir es un número copiado. Un 80 %
+rompería `main` hoy mismo (el backend está en 60 %), y la única forma de llegar sería escribir tests
+solo para subir el porcentaje, que es justo lo que no quiero. La regla que adopté es «nadie baja
+lo que ya tenemos»: el umbral acompaña a la medición real, y cuando se agreguen tests, se sube.
+
+**Por qué las dos métricas.** La de líneas es la intuitiva, pero puede mentir: una línea con un `?:`
+o un `??` cuenta como cubierta aunque el test recorra solo uno de sus dos caminos. Lo tengo en mi
+propio código: `frontend/src/lib/api/server.ts` tiene **100 % de líneas pero 83 % de ramas**, porque
+el valor por defecto de `BACKEND_INTERNAL_URL` (`?? "http://localhost:3000"`) nunca se usa en los
+tests. Las ramas muestran lo que las líneas esconden.
+
+**Cómo comprobé que frena de verdad** (corrida local, antes del pipeline): con el código de hoy el
+comando termina bien; al agregar a `src/lib` una función corta sin ningún test (2 líneas ejecutables y 4 ramas),
+el backend baja a 59,91 % de líneas y 52,74 % de ramas y el comando termina con error:
+
+```
+ERROR: Coverage for lines (59.91%) does not meet global threshold (60%)
+ERROR: Coverage for branches (52.74%) does not meet global threshold (53%)
+```
+
+En el frontend alcanza **una sola** función de una línea sin test para que las líneas bajen a
+93,33 % y falle. En el frontend las ramas no se movieron en esa prueba (la función nueva no tenía
+ningún `if`), así que ahí frenó solo la métrica de líneas: es la razón por la que miro las dos.
+
+**Qué pasaría si mañana lo subo diez puntos.** El backend pasaría a 70 % de líneas y `main` dejaría de
+pasar: hay que cubrir 23 líneas más (168 de 240) antes de poder mergear nada. Para llegar a 80 %
+serían 47 líneas más. Lo que falta cubrir está en los esquemas de validación (`validation/*`),
+`password.ts`, `magic-link.ts`, `ics.ts`, `staff-alert-email.ts`, `calendar-token.ts` y las dos
+funciones de `now-filter.ts` que no pruebo (`isPast` y `excludePastSlots`).
+
+**Qué mide y qué no.** Mide qué líneas y ramas **se ejecutaron** durante los tests, no si el
+resultado se **verificó**. Un test que llama a una función sin ningún `expect` suma cobertura y no
+prueba nada. El umbral frena el código nuevo que llega **sin que nadie lo ejecute**; no detecta un
+test flojo. Eso lo cubre otra cosa (la revisión humana y, en la teoría, las pruebas de mutantes).
+
+**Diferencia con el freno del TP4.** El gate del TP4 se ponía en rojo cuando el código **no
+compilaba** (la imagen no se construía). Este se pone en rojo con código que compila perfecto y
+cuyos tests pasan todos, porque falta cobertura: bloquea una clase de problema distinta, la de
+agregar lógica sin que nada la ejercite.
+
+<!-- PENDIENTE-URL: corrida roja por umbral, con el número en el log -->
+
 <!-- Secciones que faltan, a medida que se hacen los pasos:
-     - umbral: número, métrica y por qué, + el número de rama
      - por qué coverage alto no es calidad (ejemplo propio)
      - el ejercicio de la rama sin cubrir (línea, entrada, qué decidí)
      - el PR bloqueado: qué check, qué métrica, qué escribí para arreglarlo
