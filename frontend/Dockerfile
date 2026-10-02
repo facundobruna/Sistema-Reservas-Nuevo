@@ -7,8 +7,9 @@
 #  Postgres, ni el secreto de firma de sesiones. Todo lo que necesita se lo
 #  pide por HTTP al backend (ver BACKEND_INTERNAL_URL en next.config.ts).
 #
-#  Tres etapas: deps → builder → runner. No hay etapa `migrator` acá: el
-#  esquema de la base es asunto del backend.
+#  Cuatro etapas: deps → builder → (test | runner). No hay etapa `migrator`
+#  acá: el esquema de la base es asunto del backend. `test` no se publica: es
+#  la que corre los tests y mide la cobertura en el CI.
 # ============================================================================
 
 # ---------------------------------------------------------------------------
@@ -34,7 +35,18 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 
 # ---------------------------------------------------------------------------
-# Etapa 3 — runner: la imagen que se publica. Solo el server compilado.
+# Etapa 3 — test: tests unitarios + cobertura. Parte de `builder` (código,
+# devDependencies y tests ya están ahí). No se publica.
+#
+# ENTRYPOINT y no RUN: si el umbral de cobertura falla, igual queremos la
+# imagen y el reporte; el `docker run` devuelve el código de salida de vitest.
+# El binario se invoca directo, no vía pnpm (ver backend/Dockerfile).
+# ---------------------------------------------------------------------------
+FROM builder AS test
+ENTRYPOINT ["node_modules/.bin/vitest", "run", "--coverage"]
+
+# ---------------------------------------------------------------------------
+# Etapa 4 — runner: la imagen que se publica. Solo el server compilado.
 # ---------------------------------------------------------------------------
 FROM node:22-alpine AS runner
 RUN apk add --no-cache libc6-compat

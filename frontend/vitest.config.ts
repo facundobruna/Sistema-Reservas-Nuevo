@@ -34,7 +34,9 @@ export default defineConfig({
       ],
 
       reporter: ["text", "html", "lcov", "json-summary"],
-      reportsDirectory: "./coverage",
+      // En el pipeline el reporte se escribe en una carpeta montada desde afuera del
+      // contenedor (COVERAGE_DIR); en tu máquina, en ./coverage.
+      reportsDirectory: process.env.COVERAGE_DIR ?? "./coverage",
 
       // EL UMBRAL QUE ROMPE EL BUILD. Mismo criterio que el backend: un PISO igual a la
       // medición de hoy (96,55 % de líneas, 95,45 % de ramas) redondeada hacia abajo.

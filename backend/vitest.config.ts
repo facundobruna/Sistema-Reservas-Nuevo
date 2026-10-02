@@ -51,7 +51,9 @@ export default defineConfig({
         "lcov", // formato estándar que leen otras herramientas
         "json-summary", // el total en JSON, para armar el resumen de la corrida
       ],
-      reportsDirectory: "./coverage",
+      // En el pipeline el reporte se escribe en una carpeta montada desde afuera del
+      // contenedor (COVERAGE_DIR); en tu máquina, en ./coverage.
+      reportsDirectory: process.env.COVERAGE_DIR ?? "./coverage",
 
       // EL UMBRAL QUE ROMPE EL BUILD. Si la cobertura medida queda por debajo de
       // cualquiera de estos dos números, `vitest --coverage` termina con error y el
