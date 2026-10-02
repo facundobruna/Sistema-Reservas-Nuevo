@@ -36,7 +36,15 @@ export default defineConfig({
       reporter: ["text", "html", "lcov", "json-summary"],
       reportsDirectory: "./coverage",
 
-      // El umbral que rompe el build se define con la medición real en la mano.
+      // EL UMBRAL QUE ROMPE EL BUILD. Mismo criterio que el backend: un PISO igual a la
+      // medición de hoy (96,55 % de líneas, 95,45 % de ramas) redondeada hacia abajo.
+      // Ojo con la escala: son solo 29 líneas, así que UNA línea nueva sin test ya
+      // baja el número por debajo del piso. Es a propósito: la lógica de src/lib es
+      // chica y hoy está toda verificada. Justificación: decisiones.md.
+      thresholds: {
+        lines: 96,
+        branches: 95,
+      },
     },
   },
 });

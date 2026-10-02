@@ -53,8 +53,20 @@ export default defineConfig({
       ],
       reportsDirectory: "./coverage",
 
-      // El umbral que rompe el build se define en el paso 5, con la medición en
-      // la mano: un número elegido antes de medir es un número copiado.
+      // EL UMBRAL QUE ROMPE EL BUILD. Si la cobertura medida queda por debajo de
+      // cualquiera de estos dos números, `vitest --coverage` termina con error y el
+      // check del pipeline se pone en rojo.
+      //
+      // Es un PISO: la medición de hoy (60,41 % de líneas, 53,93 % de ramas) redondeada
+      // hacia abajo. La regla es «nadie baja lo que ya tenemos». No es un objetivo
+      // copiado de afuera: un 80 % rompería main hoy mismo. Se mide en las dos
+      // métricas porque las líneas pueden mentir (una línea con un `?:` o un `??` cuenta
+      // como cubierta aunque solo se recorra uno de sus dos caminos) y las ramas no.
+      // Justificación completa y cuánto código sin test alcanza para frenar: decisiones.md.
+      thresholds: {
+        lines: 60,
+        branches: 53,
+      },
     },
   },
 });
