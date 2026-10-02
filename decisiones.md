@@ -639,8 +639,8 @@ recordatorio.
 
 Escribí **16 métodos de test nuevos** (más los 17 que ya había del motor de disponibilidad), todos con
 estructura Arrange / Act / Assert marcada en el código, repartidos en cinco archivos de
-`backend/tests/unit/`. Los dos tests parametrizados se expanden en más casos (la suite completa
-corre 64).
+`backend/tests/unit/`. Los tests parametrizados se expanden en más casos (la suite completa
+corre 68, contando los 2 métodos del ejercicio de la rama sin cubrir, más abajo).
 
 | Archivo | Regla | Tests | Qué fija |
 |---|---|---|---|
@@ -782,9 +782,53 @@ agregar lógica sin que nada la ejercite.
 
 <!-- PENDIENTE-URL: corrida roja por umbral, con el número en el log -->
 
+### El ejercicio de la rama sin cubrir
+
+Abrí el reporte HTML de cobertura del backend (`backend/coverage/index.html`), entré a los archivos
+con líneas marcadas y elegí esta rama.
+
+**1. Qué línea es.** `backend/src/lib/availability/compute-availability.ts`, función
+`applyExceptionHours`, **línea 32**:
+
+```ts
+if (exception?.kind === "special_hours" && exception.startTime && exception.endTime) {
+  return { ...shift, startTime: exception.startTime, endTime: exception.endTime };   // línea 32
+}
+```
+
+En el reporte la línea 32 aparecía **en rojo: nunca se ejecutaba**. Un `if` tiene dos caminos y la
+suite solo recorría el que no entra: los tests que pasaban una excepción usaban `closed` (día cerrado)
+o ninguna. El camino que cambia el horario del turno por el de la excepción no lo ejercitaba nadie.
+
+**2. Qué entrada la recorre.** Un día de horario especial con horas cargadas, por ejemplo
+`{ kind: "special_hours", startTime: "12:00", endTime: "15:00" }` sobre un turno normal de 20:00 a
+23:00: ese día los horarios disponibles tienen que ser 12:00, 12:30, 13:00 y 13:30. (El último es
+13:30 porque la mesa de 90 minutos tiene que terminar a las 15:00.) El `&&` de la condición tiene
+además otros caminos: una excepción de horario especial **incompleta**, a la que le falta la hora de
+inicio, la de fin o las dos, tiene que dejar el horario normal del turno.
+
+**3. Qué decidí: agregué el test.** Dos métodos en `tests/unit/special-hours.test.ts` (uno para el
+reemplazo del horario, otro parametrizado para las tres variantes de excepción incompleta). Lo agregué
+porque no es un detalle: es una regla de negocio real (el restaurante que un feriado abre solo de 12 a
+15), y un bug ahí le cambiaría los horarios a un restaurante sin que ningún test avisara. Que el
+motor de disponibilidad tuviera un test de `closed` pero ninguno de `special_hours` era una asimetría
+que la cobertura dejó a la vista.
+
+Para comprobar que verifican algo rompí `applyExceptionHours` tres veces (invertir el `===`, cambiar el
+`&&` por `||`, usar la hora de inicio del turno en vez de la de la excepción) y las tres hicieron
+fallar tests.
+
+El efecto en el número es chico (líneas de 60,41 % a 60,83 %, ramas de 53,93 % a 55,61 %), y no
+lo agregué por eso: la cobertura me indicó **dónde mirar**, y lo que justificó el test fue la regla.
+
+**Una rama que decidí no cubrir, por contraste:** el `catch` de `signed-token.ts` (un contenido bien
+firmado pero que no es JSON). Para llegar ahí alguien tendría que firmar basura con mi clave secreta,
+algo que mi código nunca hace; es código defensivo que no vale un test.
+
+<!-- PENDIENTE-URL: reporte de cobertura donde se ve la línea (corrida del pipeline) -->
+
 <!-- Secciones que faltan, a medida que se hacen los pasos:
      - por qué coverage alto no es calidad (ejemplo propio)
-     - el ejercicio de la rama sin cubrir (línea, entrada, qué decidí)
      - el PR bloqueado: qué check, qué métrica, qué escribí para arreglarlo
      - tabla «Tu stack, de un vistazo»: herramienta por cada fila
      - problemas encontrados (tsc ya fallaba en 3 tests viejos de main; el lockfile al agregar la dependencia; coverage/ lo lintaba eslint)
