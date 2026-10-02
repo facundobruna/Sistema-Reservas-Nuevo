@@ -9,9 +9,10 @@
 #  package.json y su propio node_modules — no comparten nada más que el
 #  contrato HTTP.
 #
-#  Cuatro etapas: deps → builder → (migrator | runner).
+#  Cinco etapas: deps → builder → (test | migrator | runner).
 #  Solo `migrator` y `runner` viajan al registry; las intermedias existen para
-#  no arrastrar el toolchain de compilación a la imagen final.
+#  no arrastrar el toolchain de compilación a la imagen final. `test` no viaja
+#  a ningún lado: es la que corre los tests y mide la cobertura en el CI.
 # ============================================================================
 
 # ---------------------------------------------------------------------------
@@ -40,7 +41,29 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 
 # ---------------------------------------------------------------------------
-# Etapa 3 — migrator: imagen de un solo uso que aplica las migraciones y
+# Etapa 3 — test: corre los tests unitarios y mide la cobertura. Parte de
+# `builder` porque ahí ya están el código, las devDependencies (vitest) y los
+# tests. Es una etapa que NO se publica: existe solo para que el CI la corra.
+#
+# Los tests van en ENTRYPOINT y no en un RUN, y la diferencia importa: un RUN
+# corre al CONSTRUIR la imagen, y si falla no se genera imagen — ni, lo que es
+# peor, los reportes de cobertura, que son justo lo que hay que mirar cuando el
+# umbral falla. Con ENTRYPOINT la imagen siempre se construye y los tests
+# corren al `docker run`, con un volumen montado donde se escribe el reporte;
+# el código de salida de ese `docker run` es el de vitest (distinto de cero si
+# un test falla o si la cobertura no llega al umbral).
+#
+# Se invoca el binario de vitest directamente y no `pnpm test`, por la misma
+# razón que el migrator: pnpm puede disparar un `install` implícito que sale a
+# la red, y un contenedor no tiene por qué depender de internet para testear.
+# Solo `tests/unit`: el test de integración necesita un Postgres real y el
+# runner del CI no lo levanta (ver decisiones.md).
+# ---------------------------------------------------------------------------
+FROM builder AS test
+ENTRYPOINT ["node_modules/.bin/vitest", "run", "tests/unit", "--coverage"]
+
+# ---------------------------------------------------------------------------
+# Etapa 4 — migrator: imagen de un solo uso que aplica las migraciones y
 # termina. No es un servicio: corre una vez, antes de que arranque la API.
 # Necesita el toolchain (tsx + drizzle) que la imagen final no tiene, y por eso
 # es una etapa aparte y no un paso del arranque del runner.
@@ -69,7 +92,7 @@ COPY src ./src
 CMD ["node_modules/.bin/tsx", "src/db/migrate.ts"]
 
 # ---------------------------------------------------------------------------
-# Etapa 4 — runner: la imagen que se publica y se despliega. Sin SDK, sin
+# Etapa 5 — runner: la imagen que se publica y se despliega. Sin SDK, sin
 # pnpm, sin devDependencies y sin código fuente: solo el server compilado.
 # Corre como usuario sin privilegios.
 # ---------------------------------------------------------------------------

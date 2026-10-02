@@ -1,7 +1,13 @@
 import { DateTime } from "luxon";
 import { describe, expect, it } from "vitest";
 import { computeAvailability } from "@/lib/availability";
-import type { ActiveReservationInput, ScheduleExceptionInput, SeatingUnitInput, ShiftInput } from "@/lib/availability";
+import type {
+  ActiveReservationInput,
+  ComputeAvailabilityInput,
+  ScheduleExceptionInput,
+  SeatingUnitInput,
+  ShiftInput,
+} from "@/lib/availability";
 
 const TZ = "America/Argentina/Buenos_Aires";
 const DATE = "2026-07-20";
@@ -160,14 +166,16 @@ describe("computeAvailability", () => {
   it("combos: requieren que TODAS sus mesas estén libres", () => {
     const combo = unit({ id: "combo-1", mesaIds: ["mesa-1", "mesa-2"], minCapacity: 5, maxCapacity: 8 });
 
-    const baseInput = {
+    // Anotado con el tipo real en vez de `as const`: `as const` volvía los arrays `readonly`
+    // y la función espera arrays comunes (eso era el error de tipos).
+    const baseInput: Omit<ComputeAvailabilityInput, "activeReservations"> = {
       date: DATE,
       partySize: 6,
       timezone: TZ,
       shifts: [rollingShift()],
       seatingUnits: [combo],
       exception: null,
-    } as const;
+    };
 
     const bothFree = computeAvailability({ ...baseInput, activeReservations: [] });
     expect(bothFree.map((s) => s.time)).toContain(iso("20:00"));

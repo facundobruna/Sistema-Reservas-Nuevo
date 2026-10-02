@@ -46,7 +46,7 @@ describe("bookReservation — concurrencia", () => {
     // mediodía, se rompería según a qué hora del día corra el test).
     const now = DateTime.now().setZone(TZ);
     const minutesFromNow = Math.ceil((now.minute + 20) / 15) * 15;
-    startsAt = now.set({ minute: 0, second: 0, millisecond: 0 }).plus({ minutes: minutesFromNow }).toUTC().toISO();
+    startsAt = now.set({ minute: 0, second: 0, millisecond: 0 }).plus({ minutes: minutesFromNow }).toUTC().toISO()!;
   });
 
   afterAll(async () => {

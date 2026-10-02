@@ -45,23 +45,8 @@ export async function updateSubscriptionFromMp(
     .where(eq(subscription.restaurantId, restaurantId));
 }
 
-export type PanelAccess = "ok" | "trial_expired" | "payment_required" | "suspended";
-
-/**
- * Única fuente de verdad de si el panel del staff se bloquea. El flujo del
- * comensal (/r/{slug} y sus APIs) NUNCA llama a esto — el bloqueo es
- * exclusivo del panel, la reserva del comensal no se toca pase lo que pase.
- */
-export function evaluatePanelAccess(params: { suspendedAt: Date | null; subscription: Subscription | null }): PanelAccess {
-  if (params.suspendedAt) return "suspended";
-
-  const sub = params.subscription;
-  if (!sub) return "payment_required";
-
-  if (sub.status === "active") return "ok";
-  if (sub.status === "trialing") {
-    if (sub.trialEndsAt && sub.trialEndsAt.getTime() < Date.now()) return "trial_expired";
-    return "ok";
-  }
-  return "payment_required"; // past_due | canceled
-}
+// La regla de acceso al panel vive en lib/billing/panel-access.ts (es lógica pura,
+// sin base de datos). Se re-exporta acá para que quien ya importaba desde
+// "@/db/subscription" no note el cambio.
+export { evaluatePanelAccess } from "@/lib/billing/panel-access";
+export type { PanelAccess } from "@/lib/billing/panel-access";

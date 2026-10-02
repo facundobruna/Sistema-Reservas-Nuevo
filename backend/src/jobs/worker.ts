@@ -18,9 +18,7 @@ import { findSubscriptionsWithMpPreapproval, updateSubscriptionFromMp } from "..
 import { computeAvailability, excludePastSlots, loadAvailabilityInput } from "../lib/availability";
 import { fetchPreapproval, mapMpStatusToSubscriptionStatus } from "../lib/billing/mercadopago";
 import { getEmailSender, type EmailSender } from "../lib/email";
-import { createReservationActionToken } from "../lib/reservation/action-token";
-import { buildReservationIcs } from "../lib/reservation/ics";
-import { buildNotificationEmail } from "../lib/reservation/notification-email";
+import { sendCustomerNotification } from "../lib/reservation/send-customer-notification";
 import { buildStaffAlertEmail } from "../lib/reservation/staff-alert-email";
 
 const QUEUE = "send-due-notifications";
@@ -78,50 +76,22 @@ async function processDueNotifications(db: ReturnType<typeof drizzle<typeof sche
     }
 
     try {
-      // Vence un rato después de que termina la reserva — no un TTL fijo corto
-      // como el magic link, tiene que seguir sirviendo hasta público tarde.
-      const tokenExpiresAt = DateTime.fromJSDate(n.endsAt).plus({ hours: 2 }).toJSDate();
-      const actionToken = createReservationActionToken(n.reservationId, tokenExpiresAt);
-      const cancelUrl = `${APP_URL}/r/${n.restaurantSlug}/reservations/${n.reservationId}/cancel?token=${actionToken}`;
-      // "Confirmo que voy" solo tiene sentido ofrecerlo en el recordatorio, no
-      // apenas se reserva (recién se está pidiendo confirmarla otra vez).
-      const confirmUrl =
-        n.type === "reminder"
-          ? `${APP_URL}/api/v1/r/${n.restaurantSlug}/reservations/${n.reservationId}/confirm?token=${actionToken}`
-          : undefined;
-
-      const content = buildNotificationEmail({
-        type: n.type,
-        restaurantName: n.restaurantName,
-        restaurantTimezone: n.restaurantTimezone,
-        startsAt: n.startsAt,
-        partySize: n.partySize,
-        customerName: n.customerName,
-        confirmUrl,
-        cancelUrl,
-      });
-
-      // El .ics solo tiene sentido en la confirmación — el recordatorio no necesita repetirlo.
-      const attachments =
-        n.type === "confirmation"
-          ? [
-              {
-                filename: "reserva.ics",
-                content: Buffer.from(
-                  buildReservationIcs({
-                    reservationId: n.reservationId,
-                    restaurantName: n.restaurantName,
-                    startsAt: n.startsAt,
-                    endsAt: n.endsAt,
-                    partySize: n.partySize,
-                  }),
-                  "utf-8",
-                ).toString("base64"),
-              },
-            ]
-          : undefined;
-
-      await sender.send({ to: n.customerEmail, ...content, attachments });
+      await sendCustomerNotification(
+        sender,
+        {
+          type: n.type,
+          reservationId: n.reservationId,
+          startsAt: n.startsAt,
+          endsAt: n.endsAt,
+          partySize: n.partySize,
+          customerName: n.customerName,
+          customerEmail: n.customerEmail,
+          restaurantName: n.restaurantName,
+          restaurantTimezone: n.restaurantTimezone,
+          restaurantSlug: n.restaurantSlug,
+        },
+        APP_URL,
+      );
       await markNotificationSent(db, n.id);
     } catch (err) {
       console.error(`[worker] fallo enviando notificación ${n.id}:`, err);

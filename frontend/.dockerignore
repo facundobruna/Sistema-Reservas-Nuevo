@@ -19,7 +19,10 @@ dist
 .env.*
 !.env.example
 
-# tests y config de tests: la imagen final no los corre
+# Los tests y su config SÍ entran al contexto de build: la etapa `test` del Dockerfile los corre
+# adentro del contenedor. La imagen final (`runner`) no se los lleva: copia solo lo compilado.
+# Lo que sí queda afuera es el reporte de cobertura que genera una corrida local.
+coverage
 
 
 

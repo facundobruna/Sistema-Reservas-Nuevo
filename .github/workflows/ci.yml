@@ -20,7 +20,8 @@ concurrency:
 # enterarme aunque las otras dos compilen bien.
 jobs:
   # ---------------------------------------------------------------------------
-  # El backend: etapa `runner` de backend/Dockerfile, la imagen de la API.
+  # El backend: etapa `runner` de backend/Dockerfile (la imagen de la API) y,
+  # además, su etapa `test` (tests unitarios + cobertura, TP5).
   # ---------------------------------------------------------------------------
   build-backend:
     runs-on: ubuntu-latest
@@ -53,8 +54,52 @@ jobs:
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
 
+      # --- Tests y cobertura (TP5) -------------------------------------------
+      # La etapa `test` del Dockerfile corre vitest con cobertura. Se construye
+      # como imagen (load: true la deja disponible para `docker run` en este
+      # mismo runner) y se ejecuta aparte: si el umbral falla, la imagen igual
+      # existe y el reporte igual se escribe.
+      - name: Construir la etapa de tests del backend
+        uses: docker/build-push-action@v7
+        with:
+          context: ./backend
+          target: test
+          load: true                 # la deja en el Docker local del runner, para poder correrla
+          push: false
+          tags: sistema-reservas-backend-test:ci
+          # Solo lee: reutiliza las capas del build anterior (misma `builder`)
+          # y no exporta nada, para no pisar el cache del scope de arriba.
+          cache-from: type=gha,scope=backend
+
+      - name: Correr los tests y medir la cobertura (backend)
+        # El código de salida de `docker run` es el de vitest: distinto de cero si
+        # un test falla O si la cobertura queda bajo el umbral. Eso pone el job en
+        # rojo, y por eso build-backend es un check requerido que puede fallar
+        # por cobertura. El reporte se escribe en una carpeta montada para que
+        # sobreviva al contenedor (COVERAGE_DIR, ver vitest.config.ts).
+        run: |
+          mkdir -p backend-coverage
+          docker run --rm \
+            -e COVERAGE_DIR=/salida/reporte \
+            -v "$GITHUB_WORKSPACE/backend-coverage:/salida" \
+            sistema-reservas-backend-test:ci
+
+      - name: Mostrar la cobertura en el resumen de la corrida
+        # `!cancelled()` y no el `success()` implícito: si el paso anterior falló
+        # por el umbral, justo entonces queremos ver los números.
+        if: ${{ !cancelled() }}
+        run: node .github/scripts/coverage-summary.mjs "Backend" backend-coverage/reporte/coverage-summary.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guardar el reporte de cobertura (backend)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-backend   # nombre propio: dos artefactos con el mismo nombre rompen la corrida
+          path: backend-coverage/reporte
+          if-no-files-found: error
+
   # ---------------------------------------------------------------------------
-  # El frontend: etapa `runner` de frontend/Dockerfile.
+  # El frontend: etapa `runner` de frontend/Dockerfile y su etapa `test`.
   # ---------------------------------------------------------------------------
   build-frontend:
     runs-on: ubuntu-latest
@@ -81,6 +126,50 @@ jobs:
           # pisan — el último en terminar borra el del otro.
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
+
+      # --- Tests y cobertura (TP5) -------------------------------------------
+      # La etapa `test` del Dockerfile corre vitest con cobertura. Se construye
+      # como imagen (load: true la deja disponible para `docker run` en este
+      # mismo runner) y se ejecuta aparte: si el umbral falla, la imagen igual
+      # existe y el reporte igual se escribe.
+      - name: Construir la etapa de tests del frontend
+        uses: docker/build-push-action@v7
+        with:
+          context: ./frontend
+          target: test
+          load: true                 # la deja en el Docker local del runner, para poder correrla
+          push: false
+          tags: sistema-reservas-frontend-test:ci
+          # Solo lee: reutiliza las capas del build anterior (misma `builder`)
+          # y no exporta nada, para no pisar el cache del scope de arriba.
+          cache-from: type=gha,scope=frontend
+
+      - name: Correr los tests y medir la cobertura (frontend)
+        # El código de salida de `docker run` es el de vitest: distinto de cero si
+        # un test falla O si la cobertura queda bajo el umbral. Eso pone el job en
+        # rojo, y por eso build-frontend es un check requerido que puede fallar
+        # por cobertura. El reporte se escribe en una carpeta montada para que
+        # sobreviva al contenedor (COVERAGE_DIR, ver vitest.config.ts).
+        run: |
+          mkdir -p frontend-coverage
+          docker run --rm \
+            -e COVERAGE_DIR=/salida/reporte \
+            -v "$GITHUB_WORKSPACE/frontend-coverage:/salida" \
+            sistema-reservas-frontend-test:ci
+
+      - name: Mostrar la cobertura en el resumen de la corrida
+        # `!cancelled()` y no el `success()` implícito: si el paso anterior falló
+        # por el umbral, justo entonces queremos ver los números.
+        if: ${{ !cancelled() }}
+        run: node .github/scripts/coverage-summary.mjs "Frontend" frontend-coverage/reporte/coverage-summary.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guardar el reporte de cobertura (frontend)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-frontend   # nombre propio: dos artefactos con el mismo nombre rompen la corrida
+          path: frontend-coverage/reporte
+          if-no-files-found: error
 
   # ---------------------------------------------------------------------------
   # Las migraciones: etapa `migrator` de backend/Dockerfile.
