@@ -20,6 +20,8 @@ dist
 !.env.example
 
 # tests y config de tests: la imagen final no los corre
+tests
+vitest.config.ts
 
 
 
