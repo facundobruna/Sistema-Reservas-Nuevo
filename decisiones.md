@@ -523,3 +523,216 @@ borrador de esta sección.
 - Las protecciones de rama y los required status checks los configuré yo en la web. La IA no tuvo
   acceso a mi cuenta de GitHub.
 
+
+---
+
+## TP5 — Calidad automatizada: tests, coverage y el umbral que frena un merge
+
+> Sección escrita mientras trabajo, un paso a la vez. Los marcadores `PENDIENTE-URL` son links a
+> corridas o PRs que todavía no existen; se reemplazan por la dirección real cuando existan.
+
+### Qué lógica elegí testear y por qué esa
+
+Elegí cuatro reglas del backend, buscando en cada una **dónde duele un bug**, no dónde es fácil
+escribir un test:
+
+| Regla | Dónde vive | Qué pasa si tiene un bug |
+|---|---|---|
+| Máquina de estados de la reserva | `lib/reservation/status-machine.ts` | Una transición inválida (por ejemplo volver una reserva `completed` a `pending`) corrompe el estado de la operación del restaurante. Es la regla que más lugares tocan. |
+| Ventana de reserva (anticipación mínima y máxima) | `lib/availability/now-filter.ts` | Todo está en los bordes (`<` contra `<=`). Un borde corrido deja reservar con cero minutos de anticipación o rechaza la última hora válida: el comensal pierde una mesa o el restaurante recibe una reserva imposible. |
+| Acceso al panel según la suscripción | `lib/billing/panel-access.ts` | Bloquear a un restaurante que paga lo deja sin su herramienta de trabajo; dejar pasar a uno que no paga es plata que no entra. Tiene muchas ramas y depende de la fecha. |
+| Token firmado | `lib/auth/signed-token.ts` y `action-token.ts` | Es seguridad: si acepta una firma inválida o un token vencido, alguien puede actuar sobre una reserva que no es suya. |
+
+<!-- PENDIENTE-URL: PR de infraestructura mergeado, donde se ven los tests de estas cuatro reglas -->
+
+### Qué entra en la cuenta de cobertura y qué quedó afuera (backend)
+
+La cobertura del backend mide **`src/lib`**: la lógica de negocio. No mide `src/db` (esquema,
+migraciones generadas y consultas contra Postgres) ni `src/app` (los route handlers reciben el
+pedido, delegan y responden).
+
+Dentro de `src/lib` dejé afuera, y cada una tiene una razón técnica distinta:
+
+- **`lib/email/**` y `lib/billing/mercadopago.ts`**: adaptadores a servicios de afuera (Resend, Mercado
+  Pago) y la fábrica que elige cuál usar según una variable de entorno. Son el borde del sistema:
+  hablan con alguien más.
+- **`session.ts`, `diner-session.ts`, `superadmin-session.ts`, `require-staff.ts`,
+  `require-superadmin.ts`**: dependen de `cookies()`, `NextResponse` y `redirect()` de Next, que solo
+  existen dentro de un request real del framework.
+- **`load-availability-input.ts` y `book-reservation.ts`**: hablan con Postgres. Tienen lógica de
+  verdad (best-fit, reintentos por deadlock) y la cubre el test de integración, pero ese necesita una
+  base y el pipeline de cobertura corre sin ella.
+
+Lo que **no** hice: excluir un archivo porque no lo testeé. Excluir para subir el número es hacerse
+trampa, y es lo primero que revisaría alguien que lee el `vitest.config.ts`. La diferencia entre
+«no cuenta porque es infraestructura» y «no cuenta porque me da fiaca testearlo» está en que la
+primera razón se puede escribir y defender. Eso último sirve de criterio: cada línea de la lista
+`exclude` tiene su comentario con el porqué.
+
+**Medición de partida** (solo tests unitarios, antes de escribir ninguno nuevo): **36 % de líneas
+(81/225)** y **29,01 % de ramas (47/162)**. Solo `compute-availability.ts` estaba cubierto; las
+otras cuatro reglas estaban en 0 %.
+
+<!-- PENDIENTE-URL: corrida con el reporte de cobertura (summary + artefacto descargable) -->
+
+### Refactor para poder testear: `evaluatePanelAccess`
+
+La regla del acceso al panel vivía en `db/subscription.ts`, mezclada con cuatro funciones que
+consultan Postgres. Para testearla había que importar ese archivo, y eso arrastra el cliente de la
+base: no se puede ejecutar sin una conexión configurada. Además `src/db` está fuera de la cuenta de
+cobertura, así que aunque la hubiera testeado, no habría sumado.
+
+La moví a `lib/billing/panel-access.ts` **sin cambiar ninguna línea de su lógica**: un refactor que
+además cambia comportamiento no permite saber cuál de los dos cambios rompió algo. Dos decisiones
+chicas:
+
+- La regla recibe un tipo mínimo (`PanelAccessSubscription`: solo `status` y `trialEndsAt`) en
+  lugar de la fila completa de Drizzle. La fila real cumple esa forma, así que se le pasa tal cual,
+  pero la regla ya no depende del esquema.
+- `db/subscription.ts` la **re-exporta**, de modo que el único que la importaba (la ruta
+  `admin/panel-access`) no cambió.
+
+El principio es separar **la decisión** de **la infraestructura**: la decisión no necesita saber de
+dónde vienen los datos. Efecto colateral que conviene entender: al pasar la regla (8 líneas, 12 ramas,
+todas sin cubrir) de un lugar que no se medía a uno que sí, el porcentaje bajó antes de subir con los
+tests: de **36 % a 34,76 %** de líneas (81/233) y de **29,01 % a 27,01 %** de ramas (47/174). No cambió
+el código, cambió lo que se cuenta.
+
+<!-- PENDIENTE-URL: PR de infraestructura mergeado (commit del refactor) -->
+
+### Refactor para poder mockear: el envío de mails del worker
+
+El enunciado pide al menos un test con mock, y aclara que «mi lógica es pura» no vale: si el código
+no tiene por dónde meterlo, hay que refactorizar. El candidato natural era el worker
+(`jobs/worker.ts`), que manda los mails de confirmación y recordatorio.
+
+**Por qué no se podía testear antes.** Había dos obstáculos, y el segundo es el que no se ve a
+primera vista:
+
+1. La lógica de armar y mandar el mail estaba adentro de `processDueNotifications`, mezclada con
+   llamadas a la base (`markNotificationSent`, `recordNotificationFailure`). No se podía ejecutar la
+   parte del mail sin la parte de la base.
+2. `worker.ts` **arranca todo al importarlo**: la última línea es `main()`, que se conecta a Postgres
+   y levanta pg-boss. Un test que importara el archivo habría intentado conectarse a una base real.
+
+**Qué cambié.** Saqué esa lógica a `lib/reservation/send-customer-notification.ts`, una función
+`sendCustomerNotification(sender, notificación, appUrl)` que arma el mail y llama a
+`sender.send(...)`. El código es el mismo, movido tal cual. Tres cosas distintas respecto de antes:
+
+- El **sender entra por parámetro** (inyección de dependencias). En producción el worker le pasa el
+  de verdad (Resend o consola); un test le pasa un doble. Es lo que hace posible el mock.
+- La **URL base también entra por parámetro** en vez de leerse de una constante del módulo, para que
+  el resultado no dependa del entorno donde corre.
+- **No marca la notificación como enviada ni como fallida.** Eso es persistencia y se queda en el
+  worker. Si `send` falla, la función deja subir el error sin tocarlo, y el worker decide reintentar.
+
+Lo que **no** toqué: el aviso al staff y la lista de espera siguen como estaban. Moví lo necesario
+para tener una pieza mockeable, no reescribí el worker.
+
+El test con mock va a verificar la **interacción**: que `send` se llame una vez, con el destinatario
+correcto, con el adjunto `.ics` solo en la confirmación y con el link «confirmo que voy» solo en el
+recordatorio.
+
+<!-- PENDIENTE-URL: PR de infraestructura mergeado (commit del refactor del worker y su test con mock) -->
+
+### La suite del backend: qué verifica cada test
+
+Escribí **16 métodos de test nuevos** (más los 17 que ya había del motor de disponibilidad), todos con
+estructura Arrange / Act / Assert marcada en el código, repartidos en cinco archivos de
+`backend/tests/unit/`. Los dos tests parametrizados se expanden en más casos (la suite completa
+corre 64).
+
+| Archivo | Regla | Tests | Qué fija |
+|---|---|---|---|
+| `status-machine.test.ts` | Estados de la reserva | 2, parametrizados | Las 8 transiciones válidas y 10 inválidas, incluyendo `seated → no_show` (una vez sentados ya vinieron) y que los estados terminales no tienen salida |
+| `booking-window.test.ts` | Ventana de reserva | 3 | Los **bordes**: justo en la anticipación mínima se acepta, un minuto antes no; justo en el tope máximo se acepta, un minuto después no; `null` significa sin tope |
+| `panel-access.test.ts` | Acceso al panel | 2 | Una tabla con los 8 escenarios (suspendido gana sobre todo, sin suscripción, activa, prueba vigente / vencida / sin fecha, impaga, cancelada) y el borde exacto del vencimiento, con el reloj congelado |
+| `tokens.test.ts` | Token firmado | 5 | Ida y vuelta, token vencido, contenido alterado con la firma original, formatos mal formados (parametrizado) y que sin `AUTH_SECRET` no firma |
+| `send-customer-notification.test.ts` | Mail al comensal (**el mock**) | 4 | Qué se le pide al servicio de mails: destinatario, `.ics` solo en la confirmación, link de «confirmo que voy» solo en el recordatorio, vencimiento del token, y que si el envío falla el error sube |
+
+**Las tres técnicas, en el backend.** Parametrizado: `status-machine`, `booking-window` y
+`panel-access` usan `it.each`. Caso de error: token vencido, alterado, mal formado, sin secreto, y el
+envío que falla. Mock: `send-customer-notification`, donde `send` es un `vi.fn()`.
+
+**Mock, y por qué no es un stub.** El `EmailSender` falso responde siempre «ok» (eso, solo, sería un
+stub: una respuesta enlatada para que el código siga). Lo que lo convierte en mock es que el test
+**verifica cómo lo llamaron**: cuántas veces, a quién y con qué adjuntos. Reemplaza al servicio que
+manda mails de verdad, y por eso el test no manda ninguno.
+
+**Cómo comprobé que los tests verifican algo.** El criterio del enunciado es que si cambio una
+regla, algún test se ponga en rojo. Lo hice a mano: rompí 14 veces el código a propósito, una a la
+vez (un `<` a `<=` en cada borde, que el suspendido deje de ganar, que `past_due` pase a `ok`,
+que un `seated` pueda ir a `no_show`, que el token acepte vencidos o no chequee la firma, que el
+mail salga a otro destinatario o con el adjunto en el lugar equivocado), y **los 14 cambios pusieron
+al menos un test en rojo**. Esto no es cobertura: la cobertura dice qué líneas corrieron, esto dice
+si alguien se daría cuenta de que cambió el comportamiento.
+
+**Un error mío que atrapé.** El primer test del token del mail falló al correrlo. La fecha de la
+reserva de prueba era el 21/07/2026 y el token vence 2 horas después, así que **en cuanto pasó esa
+fecha el token ya estaba vencido** y la verificación daba `null`. El test habría pasado el día que lo
+escribí y fallado después, sin que nadie tocara el código: un test *flaky* por depender del reloj
+real. Lo arreglé congelando el reloj antes del fin de la reserva. Es la misma razón por la que
+`panel-access.test.ts` congela la fecha.
+
+<!-- PENDIENTE-URL: PR de infraestructura mergeado (los tests de las cuatro reglas y el mock) -->
+
+### Frontend: qué entra en la cuenta, qué quedó afuera y la suite
+
+El frontend no tiene base de datos ni reglas de negocio de reservas (eso quedó en el backend con la
+separación), así que su lógica propia es chica: el cliente que le habla a la API, las guardas de
+sesión, la validación del teléfono y el reemplazo de textos. Eso es lo que se mide.
+
+**Entra en la cuenta:** `src/lib/**/*.ts`.
+
+**Queda afuera, y por qué:**
+
+- **`src/app` y `src/components`** (pantallas y componentes de React). Probarlos exige un DOM, y el
+  enunciado pide tests sin DOM. Es la salvedad más importante: **el número del frontend dice cuánta de
+  la lógica está verificada, no cuánta de la interfaz.** Dentro de `src/app` también hay código que
+  no es visual (por ejemplo el `api()` privado de `admin/[slug]/_lib/api.ts`, que arma el `ApiError`),
+  pero está mezclado con los hooks de React Query y no se puede probar sin ellos.
+- **`lib/api/types.ts`**: solo tipos de TypeScript; se borran al compilar, no hay código que ejecutar.
+- **`lib/i18n/dictionaries.ts`**: los textos en español e inglés; datos, sin ninguna decisión.
+- **`lib/utils.ts`**: el helper `cn` que genera shadcn; una línea que delega en dos librerías.
+
+**La suite: 12 métodos nuevos** en `frontend/tests/unit/` (expanden a 26 casos):
+
+| Archivo | Tests | Técnica |
+|---|---|---|
+| `phone.test.ts` | `normalizeArPhone` (5 casos), `e164Phone` acepta (4) y rechaza (7) | Parametrizados; el rechazo es el caso de error, con los bordes de 7 y 15 dígitos |
+| `i18n.test.ts` | `interpolate` reemplaza, y deja el token a la vista si falta el valor | Caso de borde: un valor ausente no rompe ni muestra `undefined` |
+| `api-server.test.ts` | `apiGet` reenvía las cookies / no manda cookie sin sesión (parametrizado); error del backend devuelve el status sin leer el cuerpo | **Mock** de `cookies()` de Next y de `fetch` |
+| `auth-guards.test.ts` | `requireStaffPage` redirige al login sin sesión o con sesión de otro restaurante (parametrizado) y deja pasar si es el correcto; `requireSuperadminPage`, ambos caminos | **Mock** de `apiGet` y de `redirect` |
+
+**El mock del frontend.** `apiGet` es la única puerta del frontend hacia el backend, y depende de dos
+cosas que solo existen en un servidor real: `cookies()` de Next y `fetch`. Las reemplacé por mocks, de
+modo que el test no sale a la red. El test verifica la **interacción**: a qué URL se llamó, qué
+cookie se reenvió y con `cache: "no-store"` (son datos por usuario; cachearlos mostraría los de un
+restaurante en el panel de otro). En las guardas, el `redirect` mock **lanza una excepción** igual
+que el real: si no lo hiciera, el código siguiente correría con datos que no existen y el test
+fallaría por una razón que no es la que quiero probar.
+
+**La regla que más importa del frontend** es la de `requireStaffPage`: un usuario logueado en el
+restaurante A no puede ver el panel del restaurante B. Por eso es el caso parametrizado con
+«la sesión es de otro restaurante».
+
+**Cómo comprobé que verifican algo.** Igual que en el backend, rompí el código 13 veces a propósito
+(quitar el 0 inicial del teléfono, correr un borde del largo, no antepone el 9 de celular, no usar
+`no-store`, mandar la cookie vacía, no revisar `response.ok`, dejar de comparar el restaurante,
+invertir la guarda de superadmin, entre otras) y **las 13 pusieron al menos un test en rojo**.
+
+**Un detalle de empaquetado.** El `.dockerignore` del backend ya dejaba los tests afuera de la imagen
+(«la imagen final no los corre»), pero el del frontend tenía esa sección **vacía**. Le agregué
+`tests` y `vitest.config.ts`: sin eso los tests entran al contexto de build, y cualquier cambio en
+un test invalidaría el cache de la imagen aunque el código no cambie.
+
+<!-- PENDIENTE-URL: corrida con el reporte de cobertura del frontend (summary + artefacto descargable) -->
+
+<!-- Secciones que faltan, a medida que se hacen los pasos:
+     - umbral: número, métrica y por qué, + el número de rama
+     - por qué coverage alto no es calidad (ejemplo propio)
+     - el ejercicio de la rama sin cubrir (línea, entrada, qué decidí)
+     - el PR bloqueado: qué check, qué métrica, qué escribí para arreglarlo
+     - tabla «Tu stack, de un vistazo»: herramienta por cada fila
+     - problemas encontrados (tsc ya fallaba en 3 tests viejos de main; el lockfile al agregar la dependencia; coverage/ lo lintaba eslint)
+     - declaración de uso de IA -->
