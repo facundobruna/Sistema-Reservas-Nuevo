@@ -528,8 +528,8 @@ borrador de esta sección.
 
 ## TP5 — Calidad automatizada: tests, coverage y el umbral que frena un merge
 
-> Sección escrita mientras trabajo, un paso a la vez. Los marcadores `PENDIENTE-URL` son links a
-> corridas o PRs que todavía no existen; se reemplazan por la dirección real cuando existan.
+> Sección escrita mientras trabajo, un paso a la vez. Junto a cada decisión está el link a la
+> corrida o al Pull Request que la prueba.
 
 ### Qué lógica elegí testear y por qué esa
 
@@ -543,7 +543,7 @@ escribir un test:
 | Acceso al panel según la suscripción | `lib/billing/panel-access.ts` | Bloquear a un restaurante que paga lo deja sin su herramienta de trabajo; dejar pasar a uno que no paga es plata que no entra. Tiene muchas ramas y depende de la fecha. |
 | Token firmado | `lib/auth/signed-token.ts` y `action-token.ts` | Es seguridad: si acepta una firma inválida o un token vencido, alguien puede actuar sobre una reserva que no es suya. |
 
-<!-- PENDIENTE-URL: PR de infraestructura mergeado, donde se ven los tests de estas cuatro reglas -->
+**Prueba:** [Pull Request #23](https://github.com/facundobruna/Sistema-Reservas-Nuevo/pull/23), donde están los tests de estas cuatro reglas.
 
 ### Qué entra en la cuenta de cobertura y qué quedó afuera (backend)
 
@@ -573,7 +573,7 @@ primera razón se puede escribir y defender. Eso último sirve de criterio: cada
 (81/225)** y **29,01 % de ramas (47/162)**. Solo `compute-availability.ts` estaba cubierto; las
 otras cuatro reglas estaban en 0 %.
 
-<!-- PENDIENTE-URL: corrida con el reporte de cobertura (summary + artefacto descargable) -->
+**Prueba:** [corrida con el resumen de cobertura y el reporte descargable (artefacto `coverage-backend`)](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/37346507985).
 
 ### Refactor para poder testear: `evaluatePanelAccess`
 
@@ -598,7 +598,7 @@ todas sin cubrir) de un lugar que no se medía a uno que sí, el porcentaje baj�
 tests: de **36 % a 34,76 %** de líneas (81/233) y de **29,01 % a 27,01 %** de ramas (47/174). No cambió
 el código, cambió lo que se cuenta.
 
-<!-- PENDIENTE-URL: PR de infraestructura mergeado (commit del refactor) -->
+**Prueba:** [Pull Request #23](https://github.com/facundobruna/Sistema-Reservas-Nuevo/pull/23) (commit del refactor).
 
 ### Refactor para poder mockear: el envío de mails del worker
 
@@ -633,14 +633,16 @@ El test con mock va a verificar la **interacción**: que `send` se llame una vez
 correcto, con el adjunto `.ics` solo en la confirmación y con el link «confirmo que voy» solo en el
 recordatorio.
 
-<!-- PENDIENTE-URL: PR de infraestructura mergeado (commit del refactor del worker y su test con mock) -->
+**Prueba:** [Pull Request #23](https://github.com/facundobruna/Sistema-Reservas-Nuevo/pull/23) (commit del refactor del worker y su test con mock).
 
 ### La suite del backend: qué verifica cada test
 
-Escribí **16 métodos de test nuevos** (más los 17 que ya había del motor de disponibilidad), todos con
-estructura Arrange / Act / Assert marcada en el código, repartidos en cinco archivos de
-`backend/tests/unit/`. Los tests parametrizados se expanden en más casos (la suite completa
-corre 68, contando los 2 métodos del ejercicio de la rama sin cubrir, más abajo).
+Escribí **21 métodos de test nuevos** (más los 17 casos que ya había del motor de disponibilidad), todos
+con estructura Arrange / Act / Assert marcada en el código, repartidos en siete archivos de
+`backend/tests/unit/`. La tabla de abajo tiene los cinco primeros; los otros dos son el del ejercicio de
+la rama sin cubrir (`special-hours.test.ts`, más abajo) y el del primer Pull Request bloqueado
+(`cancellation-policy.test.ts`, también más abajo). Los tests parametrizados se expanden en más casos:
+la suite completa corre **76**.
 
 | Archivo | Regla | Tests | Qué fija |
 |---|---|---|---|
@@ -674,7 +676,7 @@ escribí y fallado después, sin que nadie tocara el código: un test *flaky* po
 real. Lo arreglé congelando el reloj antes del fin de la reserva. Es la misma razón por la que
 `panel-access.test.ts` congela la fecha.
 
-<!-- PENDIENTE-URL: PR de infraestructura mergeado (los tests de las cuatro reglas y el mock) -->
+**Prueba:** [Pull Request #23](https://github.com/facundobruna/Sistema-Reservas-Nuevo/pull/23).
 
 ### Frontend: qué entra en la cuenta, qué quedó afuera y la suite
 
@@ -695,7 +697,7 @@ sesión, la validación del teléfono y el reemplazo de textos. Eso es lo que se
 - **`lib/i18n/dictionaries.ts`**: los textos en español e inglés; datos, sin ninguna decisión.
 - **`lib/utils.ts`**: el helper `cn` que genera shadcn; una línea que delega en dos librerías.
 
-**La suite: 12 métodos nuevos** en `frontend/tests/unit/` (expanden a 26 casos):
+**La suite: 11 métodos nuevos** en `frontend/tests/unit/` (expanden a 26 casos):
 
 | Archivo | Tests | Técnica |
 |---|---|---|
@@ -721,12 +723,12 @@ restaurante A no puede ver el panel del restaurante B. Por eso es el caso parame
 `no-store`, mandar la cookie vacía, no revisar `response.ok`, dejar de comparar el restaurante,
 invertir la guarda de superadmin, entre otras) y **las 13 pusieron al menos un test en rojo**.
 
-**Un detalle de empaquetado.** El `.dockerignore` del backend ya dejaba los tests afuera de la imagen
-(«la imagen final no los corre»), pero el del frontend tenía esa sección **vacía**. Le agregué
-`tests` y `vitest.config.ts`: sin eso los tests entran al contexto de build, y cualquier cambio en
-un test invalidaría el cache de la imagen aunque el código no cambie.
+**Un detalle de empaquetado, que cambié más tarde.** Al principio el `.dockerignore` dejaba los tests
+afuera de la imagen. Cuando pasé los tests al pipeline (sección siguiente) tuve que sacar esa
+exclusión: la etapa `test` del Dockerfile necesita los tests adentro del contexto de build. Está
+explicado ahí, con sus consecuencias.
 
-<!-- PENDIENTE-URL: corrida con el reporte de cobertura del frontend (summary + artefacto descargable) -->
+**Prueba:** [corrida con el resumen de cobertura del frontend y su reporte descargable (artefacto `coverage-frontend`)](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/37346507985).
 
 ### El umbral de cobertura: número, métrica y por qué
 
@@ -740,6 +742,12 @@ un test invalidaría el cache de la imagen aunque el código no cambie.
 El número de **ramas** que me da hoy es 53,93 % en el backend y 95,45 % en el frontend, y lo reporto
 siempre, no solo cuando es el que frena.
 
+Esa tabla es la medición **al fijar el umbral**. Desde entonces el backend subió por los tests del
+ejercicio de la rama sin cubrir y del primer Pull Request: hoy mide **61,94 % de líneas (153/247) y
+57,29 % de ramas (106/185)**. No subí el piso: queda en 60 % y 53 %, con un margen de unos dos puntos
+en líneas y cuatro en ramas. Subirlo es un cambio de una línea en `vitest.config.ts` cuando decida que
+ese margen es demasiado holgado.
+
 **Por qué ese criterio y no un 80 %.** Un número elegido sin medir es un número copiado. Un 80 %
 rompería `main` hoy mismo (el backend está en 60 %), y la única forma de llegar sería escribir tests
 solo para subir el porcentaje, que es justo lo que no quiero. La regla que adopté es «nadie baja
@@ -751,22 +759,17 @@ propio código: `frontend/src/lib/api/server.ts` tiene **100 % de líneas pero 8
 el valor por defecto de `BACKEND_INTERNAL_URL` (`?? "http://localhost:3000"`) nunca se usa en los
 tests. Las ramas muestran lo que las líneas esconden.
 
-**Cómo comprobé que frena de verdad** (corrida local, antes del pipeline): con el código de hoy el
-comando termina bien; al agregar a `src/lib` una función corta sin ningún test (2 líneas ejecutables y 4 ramas),
-el backend baja a 59,91 % de líneas y 52,74 % de ramas y el comando termina con error:
-
-```
-ERROR: Coverage for lines (59.91%) does not meet global threshold (60%)
-ERROR: Coverage for branches (52.74%) does not meet global threshold (53%)
-```
-
-En el frontend alcanza **una sola** función de una línea sin test para que las líneas bajen a
-93,33 % y falle. En el frontend las ramas no se movieron en esa prueba (la función nueva no tenía
-ningún `if`), así que ahí frenó solo la métrica de líneas: es la razón por la que miro las dos.
+**Cómo comprobé que frena de verdad.** Primero en mi máquina: agregando una función sin tests a
+`src/lib`, el comando de cobertura termina con error y código de salida distinto de cero. Después en
+el pipeline, con los dos Pull Requests de más abajo: en el del backend frenó **solo la métrica de
+líneas** (59,10 % contra el piso de 60 %; las ramas, 53,51 %, seguían arriba de 53 %), y en el del
+frontend frenaron **las dos** (líneas 87,5 % contra 96 %, ramas 80,76 % contra 95 %). Que en un caso
+frene una sola es la razón por la que miro las dos: [corrida roja del backend](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/37345927159) y
+[corrida roja del frontend](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/37350133993).
 
 **Qué pasaría si mañana lo subo diez puntos.** El backend pasaría a 70 % de líneas y `main` dejaría de
-pasar: hay que cubrir 23 líneas más (168 de 240) antes de poder mergear nada. Para llegar a 80 %
-serían 47 líneas más. Lo que falta cubrir está en los esquemas de validación (`validation/*`),
+pasar: con 247 líneas medidas hay que llegar a 173, y hoy hay 153, así que faltan **20 líneas
+cubiertas** antes de poder mergear nada. Para llegar a 80 % serían 45 líneas más. Lo que falta cubrir está en los esquemas de validación (`validation/*`),
 `password.ts`, `magic-link.ts`, `ics.ts`, `staff-alert-email.ts`, `calendar-token.ts` y las dos
 funciones de `now-filter.ts` que no pruebo (`isPast` y `excludePastSlots`).
 
@@ -780,7 +783,7 @@ compilaba** (la imagen no se construía). Este se pone en rojo con código que c
 cuyos tests pasan todos, porque falta cobertura: bloquea una clase de problema distinta, la de
 agregar lógica sin que nada la ejercite.
 
-<!-- PENDIENTE-URL: corrida roja por umbral, con el número en el log -->
+**Prueba:** [corrida roja por umbral, con el número en el log](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/37345927159) (la del primer commit del Pull Request #24, más abajo).
 
 ### El ejercicio de la rama sin cubrir
 
@@ -825,11 +828,152 @@ lo agregué por eso: la cobertura me indicó **dónde mirar**, y lo que justific
 firmado pero que no es JSON). Para llegar ahí alguien tendría que firmar basura con mi clave secreta,
 algo que mi código nunca hace; es código defensivo que no vale un test.
 
-<!-- PENDIENTE-URL: reporte de cobertura donde se ve la línea (corrida del pipeline) -->
+**Prueba:** el reporte con la línea 32 en rojo lo vi en mi máquina, antes de agregar el test; en el
+pipeline ya aparece cubierta. El test está en el [Pull Request #23](https://github.com/facundobruna/Sistema-Reservas-Nuevo/pull/23) y el reporte de la corrida
+(artefacto `coverage-backend`) está en [esta corrida](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/37346507985).
 
-<!-- Secciones que faltan, a medida que se hacen los pasos:
-     - por qué coverage alto no es calidad (ejemplo propio)
-     - el PR bloqueado: qué check, qué métrica, qué escribí para arreglarlo
-     - tabla «Tu stack, de un vistazo»: herramienta por cada fila
-     - problemas encontrados (tsc ya fallaba en 3 tests viejos de main; el lockfile al agregar la dependencia; coverage/ lo lintaba eslint)
-     - declaración de uso de IA -->
+### El pipeline: los tests y la cobertura adentro de los checks de siempre
+
+**No agregué jobs nuevos: extendí `build-backend` y `build-frontend`.** Cada uno, además de construir
+la imagen `runner`, construye una etapa `test` del Dockerfile y la corre. Lo elegí por los required
+checks: los tres nombres que ya protegían `main` (`build-backend`, `build-frontend`, `build-migrate`)
+siguen siendo los mismos, y los dos primeros ahora pueden ponerse en rojo **por cobertura**. Si
+hubiera creado un job `test` nuevo, habría que agregarlo a mano a la protección de la rama, y hasta
+entonces no frenaría nada.
+
+**La etapa `test`.** Parte de `builder`, que ya tiene el código, los tests y las devDependencies
+(el `pnpm install --frozen-lockfile` de la etapa `deps` no usa `--prod`; sin vitest no hay nada que
+correr). Los tests van en `ENTRYPOINT` y **no** en un `RUN`, y la diferencia importa: un `RUN` corre al
+*construir* la imagen, y si falla no hay imagen ni reporte, justo cuando el reporte es lo que quiero
+mirar. Con `ENTRYPOINT` la imagen siempre se construye, los tests corren en el `docker run`, y el
+código de salida de ese `docker run` es el de vitest: distinto de cero si un test falla **o** si la
+cobertura no llega al umbral. Eso es lo que pone el job en rojo.
+
+**Cómo sale el reporte del contenedor.** El contenedor muere al terminar, así que el reporte se escribe
+en una carpeta montada (`-v`), y la ruta se le pasa a vitest con la variable `COVERAGE_DIR` (leída en
+`vitest.config.ts`, con `./coverage` como valor por defecto para correrlo en mi máquina). Después:
+
+- Un script chico (`.github/scripts/coverage-summary.mjs`) lee el `coverage-summary.json` y escribe una
+  tabla (líneas, ramas, funciones, sentencias) en el resumen de la corrida. **Falla si el reporte no
+  existe o está vacío**: un resumen que no encuentra nada y deja el job en verde sería exactamente la
+  falla silenciosa que el umbral existe para evitar.
+- El reporte completo (HTML, lcov y JSON) se sube como artefacto, con nombre propio por lado
+  (`coverage-backend`, `coverage-frontend`).
+- Esos dos pasos llevan `if: ${{ !cancelled() }}`: si el paso de los tests falló por el umbral, justo
+  entonces quiero ver los números.
+
+**Solo los tests unitarios corren en el pipeline.** En el backend es `tests/unit`: el test de integración
+(`book-reservation.test.ts`) necesita un Postgres real y el pipeline no lo levanta. Es un límite de lo
+que verifica el CI, y está dicho también en la lista de lo que queda afuera de la cuenta.
+
+**Consecuencia de dejar entrar los tests al contexto de build.** Para que la etapa `test` los tenga, saqué
+`tests` y `vitest.config.ts` de los `.dockerignore`, y agregué `coverage`. Dos efectos que conviene
+entender: cualquier cambio en un test invalida la capa `COPY . .` y obliga a volver a compilar Next; y
+`next build` ahora hace el chequeo de tipos también sobre los tests, lo que destapó errores de
+tipos que ya estaban en tests viejos de `main` (ver «Problemas»). La imagen que se publica (`runner`)
+sigue sin tener los tests: solo copia el server compilado.
+
+**Prueba:** [la corrida verde del Pull Request #24](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/37346507985) muestra en su resumen las dos tablas
+de cobertura y tiene los dos artefactos descargables.
+
+### El Pull Request bloqueado: la secuencia rojo → tests → verde → merge
+
+**Pull Request #24: [`feat/politica-de-cancelacion`](https://github.com/facundobruna/Sistema-Reservas-Nuevo/pull/24).** Código nuevo para el backend:
+`classifyCancellation` (`lib/reservation/cancellation-policy.ts`), una regla con bordes. Clasifica una
+cancelación como `free` (24 horas o más de anticipación), `late` (menos de 24 horas pero antes de la hora
+de la reserva) o `after_start` (a la hora o después). Todavía no está conectada al panel: es la pieza de
+lógica nueva, sin usuarios. Hice el Pull Request en **dos commits**, y esperé a que terminara el CI del
+primero antes de subir el segundo:
+
+1. **Commit 1: el código, sin tests.** Compila, y los 68 tests que ya existían pasan. **`build-backend` se
+   puso en rojo** en el paso «Correr los tests y medir la cobertura (backend)», por **cobertura de líneas**:
+   59,10 % contra el piso de 60 %. Las ramas (53,51 %) no frenaron: estaban apenas arriba de 53 %. Es
+   código que compila y cuyos tests pasan; lo que falta es que **nadie lo ejecuta**. [Corrida roja](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/37345927159).
+2. **Commit 2: los tests que faltaban.** `tests/unit/cancellation-policy.test.ts`, tres métodos (8 casos):
+   una tabla de seis cancelaciones con los bordes (24 horas exactas es `free`, un minuto menos es `late`;
+   justo a la hora de la reserva ya es `after_start`), una ventana gratis distinta de la de por defecto,
+   y el error por ventana negativa. Para comprobar que verifican algo rompí la función dos veces (`>=`
+   por `>` y `<= 0` por `< 0`) y cada cambio hizo fallar un test. Con eso la cobertura pasó a 61,94 % de
+   líneas y 57,29 % de ramas, y **`build-backend` quedó en verde**. [Corrida verde](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/37346507985).
+
+Lo mergeé a `main` con un *merge commit* (no squash), para que el historial conserve los dos
+commits: la conversación del [Pull Request #24](https://github.com/facundobruna/Sistema-Reservas-Nuevo/pull/24) cuenta la secuencia entera.
+
+**El segundo Pull Request, el que queda abierto y en rojo.** Es chico y tiene el mismo problema **sin
+arreglar**: `formatPartySize` (`frontend/src/lib/format-party-size.ts`), una función de pocas líneas y
+dos ramas, sin ningún test. Es del frontend, porque ahí el piso es más exigente y alcanza con muy poco
+código para romperlo. `build-frontend` se pone en rojo en **las dos métricas**: líneas 87,5 % contra 96 %
+y ramas 80,76 % contra 95 %. Lo dejé con el título «NO MERGEAR» y **no le agregué tests**: queda abierto
+y rojo hasta la defensa, y como `build-frontend` es un required check, `main` no deja mergearlo.
+PENDIENTE-URL del Pull Request abierto. [Corrida roja](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/37350133993).
+
+### Por qué coverage alto no garantiza calidad (con mi ejemplo)
+
+La cobertura mide qué líneas y ramas **se ejecutaron**, no si algo se **verificó**. Lo comprobé con mi propio
+código, el del primer Pull Request. Escribí aparte (y no lo commiteé) un test que llama a
+`classifyCancellation` con tres situaciones y en cada una solo hace `expect(resultado).toBeDefined()`:
+
+- Ese test da **100 % de líneas (7/7) y 100 % de ramas (7/7)** en `cancellation-policy.ts`, o sea que, si lo
+  hubiera subido, el umbral habría quedado feliz.
+- Rompí la función a propósito para que una cancelación tardía nunca se detecte (que `late` devuelva
+  `free`). El test de «cobertura» **sigue pasando**. Con los tests de verdad, el mismo cambio hace fallar
+  3 casos.
+
+Esa es la diferencia: el umbral frena código que nadie ejecuta, pero no detecta un test que ejecuta sin
+verificar. Eso lo cubre el assert y la revisión de quien escribe y lee los tests. En mi código hay otro
+ejemplo, el de `server.ts` (100 % de líneas pero 83 % de ramas), que muestra la versión «chica» del mismo
+problema: una línea cuenta como cubierta aunque un camino de su `??` nunca se recorra.
+
+### Tu stack, de un vistazo: qué usé para cada fila
+
+Mi stack es TypeScript con Next.js, y vitest es el marco de tests. Lo que usé para cada cosa que pide la
+tabla del enunciado:
+
+| Lo que tenía que lograr | Qué usé |
+|---|---|
+| Dónde viven los tests | `tests/unit/` dentro de `backend/` y de `frontend/`; vitest los encuentra con `include: ["tests/**/*.test.ts"]` |
+| Un test parametrizado | `it.each` |
+| Que la dependencia entre desde afuera | En el backend, `sendCustomerNotification(sender, …)` recibe el sender de mails **por parámetro** (refactor del worker, explicado más arriba). En el frontend no hizo falta refactorizar: se reemplazan los módulos con `vi.mock` |
+| Fabricar el doble (mock) | `vi.fn()` para el sender y para `fetch`, `vi.mock()` para `next/headers`, `next/navigation` y `@/lib/api/server`, `vi.stubGlobal` para `fetch` |
+| Medir la cobertura | `vitest run --coverage` con el proveedor `v8` (`@vitest/coverage-v8`, misma versión que vitest) |
+| Un umbral que ROMPE el build | `coverage.thresholds` en `vitest.config.ts`: si no se cumple, vitest termina con código distinto de cero, el `docker run` falla y el job queda en rojo |
+| Qué ENTRA en la cuenta | `coverage.include` y `coverage.exclude` en `vitest.config.ts`, con la razón de cada exclusión escrita como comentario |
+| Reporte legible | Reporters `text`, `html`, `lcov` y `json-summary` (este último es el que lee el script del resumen) |
+| Que las herramientas de test ENTREN a la etapa de tests del Dockerfile | `pnpm install --frozen-lockfile` en la etapa `deps` sin `--prod`, y la etapa `test` parte de `builder` |
+
+### Problemas encontrados y cómo los resolví
+
+- **`tsc` ya fallaba en tests viejos de `main`.** Nadie lo veía, porque el chequeo de tipos de
+  `next build` no incluía los tests mientras el `.dockerignore` los dejaba afuera del contexto. Al
+  dejarlos entrar para la etapa `test`, el build los empezó a chequear. Los errores eran de dos clases: un
+  arreglo `as const` de solo lectura que no coincidía con el tipo esperado (en
+  `compute-availability.test.ts`, lo resolví tipando el objeto de entrada) y un valor que podía ser
+  `null` donde se esperaba un `string` (en `book-reservation.test.ts`, una aserción `!`).
+- **Un test que dependía del reloj** (el del token del mail): pasaba el día que lo escribí y habría
+  fallado después. Está contado en «La suite del backend»; lo arreglé congelando el reloj.
+- **ESLint empezó a revisar la carpeta `coverage/`**, que se genera sola y está llena de archivos
+  ajenos. Agregué `coverage/**` a los ignores de los dos `eslint.config.mjs`.
+- **El historial de mi rama.** Reescribí en local los commits de la rama del primer Pull Request de
+  infraestructura para dejar un historial limpio; el remoto ya tenía los viejos y quedaron divergentes
+  (la rama figuraba «ahead 5, behind 3»). Como era mi propia rama de trabajo y el contenido era idéntico,
+  la subí con `git push --force-with-lease`, que se niega a pisar el remoto si alguien más subió algo
+  que yo no vi.
+
+### Declaración de uso de IA
+
+Usé **Claude** durante todo el TP, trabajando paso a paso conmigo. Lo que fue asistido por IA:
+
+- La elección de las reglas a testear y de los umbrales (yo decidí cuál adoptar entre las opciones que
+  se discutieron).
+- La escritura de los tests del backend y del frontend, de los dos refactors (`evaluatePanelAccess` y el
+  envío de mails del worker), de la configuración de cobertura en `vitest.config.ts`, de la etapa `test`
+  de los Dockerfiles, de los pasos nuevos del `ci.yml` y del script del resumen, y del código de los dos
+  Pull Requests de la demostración.
+- Un borrador de esta sección, que revisé y ajusté.
+
+**Cómo lo verifiqué:** corrí la suite y la cobertura en mi máquina y en el pipeline; rompí el código a
+propósito para ver que los tests fallan (14 veces en el backend, 13 en el frontend y 2 en
+`classifyCancellation`: todas pusieron al menos un test en rojo); comprobé que los umbrales frenan de
+verdad (las dos corridas rojas de arriba); y abrí el reporte de cobertura para el ejercicio de la rama
+sin cubrir. Para cada test puedo explicar qué verifica cada assert y qué caso no cubre: la lista está en
+«La suite del backend» y en «Frontend».
