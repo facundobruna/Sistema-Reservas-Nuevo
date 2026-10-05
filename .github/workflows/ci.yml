@@ -25,6 +25,12 @@ jobs:
   # ---------------------------------------------------------------------------
   build-backend:
     runs-on: ubuntu-latest
+    # Permisos del GITHUB_TOKEN para ESTE job (y no para todo el workflow): leer el
+    # código y escribir paquetes. Es lo que permite publicar en ghcr.io sin
+    # guardar ninguna contraseña en el repo.
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Qué estamos verificando
         env:
@@ -42,17 +48,16 @@ jobs:
         # GitHub. Sin este paso, el build falla al intentar exportar el cache.
         uses: docker/setup-buildx-action@v4
 
-      - name: Construir la imagen del backend
-        uses: docker/build-push-action@v7
+      - name: Entrar al registry
+        # Solo en push (a main): en un pull_request no se publica nada, así que
+        # ni siquiera se abre sesión. Este paso aparece "skipped" en la corrida
+        # del PR: es la prueba de que el PR no tiene camino hacia el registry.
+        if: github.event_name == 'push'
+        uses: docker/login-action@v4
         with:
-          # El contexto es la carpeta del backend, no la raíz: el build no puede
-          # ver el frontend. Es la misma separación, sostenida también acá.
-          context: ./backend
-          target: runner
-          push: false                # sólo se verifica que construya; publicar es otra cosa
-          tags: sistema-reservas-backend:ci
-          cache-from: type=gha,scope=backend
-          cache-to: type=gha,mode=max,scope=backend
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # --- Tests y cobertura (TP5) -------------------------------------------
       # La etapa `test` del Dockerfile corre vitest con cobertura. Se construye
@@ -98,11 +103,34 @@ jobs:
           path: backend-coverage/reporte
           if-no-files-found: error
 
+      # --- Publicar (TP6) -----------------------------------------------------
+      # ÚLTIMO paso del job, a propósito: si arriba falló el build o un test, el
+      # job se corta ahí y esto nunca corre. Nada se publica sin haber pasado
+      # por los tests en este mismo job. Y `push` solo vale true en un push a
+      # main: en un PR el mismo paso construye, pero no publica.
+      # El tag es el commit exacto: la imagen se puede rastrear hasta su código.
+      # El nombre va en minúsculas escrito a mano: ghcr.io rechaza mayúsculas.
+      - name: Construir y publicar la imagen del backend
+        uses: docker/build-push-action@v7
+        with:
+          context: ./backend
+          target: runner
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: ghcr.io/facundobruna/sistema-reservas-backend:sha-${{ github.sha }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
   # ---------------------------------------------------------------------------
   # El frontend: etapa `runner` de frontend/Dockerfile y su etapa `test`.
   # ---------------------------------------------------------------------------
   build-frontend:
     runs-on: ubuntu-latest
+    # Permisos del GITHUB_TOKEN para ESTE job (y no para todo el workflow): leer el
+    # código y escribir paquetes. Es lo que permite publicar en ghcr.io sin
+    # guardar ninguna contraseña en el repo.
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Qué estamos verificando
         env:
@@ -115,17 +143,16 @@ jobs:
       - name: Preparar el constructor que sabe cachear
         uses: docker/setup-buildx-action@v4
 
-      - name: Construir la imagen del frontend
-        uses: docker/build-push-action@v7
+      - name: Entrar al registry
+        # Solo en push (a main): en un pull_request no se publica nada, así que
+        # ni siquiera se abre sesión. Este paso aparece "skipped" en la corrida
+        # del PR: es la prueba de que el PR no tiene camino hacia el registry.
+        if: github.event_name == 'push'
+        uses: docker/login-action@v4
         with:
-          context: ./frontend
-          target: runner
-          push: false
-          tags: sistema-reservas-frontend:ci
-          # scope PROPIO: sin esto los jobs comparten estante de cache y se
-          # pisan — el último en terminar borra el del otro.
-          cache-from: type=gha,scope=frontend
-          cache-to: type=gha,mode=max,scope=frontend
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # --- Tests y cobertura (TP5) -------------------------------------------
       # La etapa `test` del Dockerfile corre vitest con cobertura. Se construye
@@ -170,6 +197,23 @@ jobs:
           name: coverage-frontend   # nombre propio: dos artefactos con el mismo nombre rompen la corrida
           path: frontend-coverage/reporte
           if-no-files-found: error
+
+      # --- Publicar (TP6) -----------------------------------------------------
+      # ÚLTIMO paso del job, a propósito: si arriba falló el build o un test, el
+      # job se corta ahí y esto nunca corre. Nada se publica sin haber pasado
+      # por los tests en este mismo job. Y `push` solo vale true en un push a
+      # main: en un PR el mismo paso construye, pero no publica.
+      # El tag es el commit exacto: la imagen se puede rastrear hasta su código.
+      # El nombre va en minúsculas escrito a mano: ghcr.io rechaza mayúsculas.
+      - name: Construir y publicar la imagen del frontend
+        uses: docker/build-push-action@v7
+        with:
+          context: ./frontend
+          target: runner
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: ghcr.io/facundobruna/sistema-reservas-frontend:sha-${{ github.sha }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
 
   # ---------------------------------------------------------------------------
   # Las migraciones: etapa `migrator` de backend/Dockerfile.
