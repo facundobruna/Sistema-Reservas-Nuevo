@@ -870,7 +870,8 @@ que verifica el CI, y está dicho también en la lista de lo que queda afuera de
 `tests` y `vitest.config.ts` de los `.dockerignore`, y agregué `coverage`. Dos efectos que conviene
 entender: cualquier cambio en un test invalida la capa `COPY . .` y obliga a volver a compilar Next; y
 `next build` ahora hace el chequeo de tipos también sobre los tests, lo que destapó errores de
-tipos que ya estaban en tests viejos de `main` (ver «Problemas»). La imagen que se publica (`runner`)
+tipos que ya estaban en dos tests viejos de `main` (`compute-availability.test.ts` y
+`book-reservation.test.ts`) y que corregí para que el build pase. La imagen que se publica (`runner`)
 sigue sin tener los tests: solo copia el server compilado.
 
 **Prueba:** [la corrida verde del Pull Request #24](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/37346507985) muestra en su resumen las dos tablas
@@ -905,7 +906,7 @@ dos ramas, sin ningún test. Es del frontend, porque ahí el piso es más exigen
 código para romperlo. `build-frontend` se pone en rojo en **las dos métricas**: líneas 87,5 % contra 96 %
 y ramas 80,76 % contra 95 %. Lo dejé con el título «NO MERGEAR» y **no le agregué tests**: queda abierto
 y rojo hasta la defensa, y como `build-frontend` es un required check, `main` no deja mergearlo.
-PENDIENTE-URL del Pull Request abierto. [Corrida roja](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/37350133993).
+[Pull Request #25 (abierto y en rojo)](https://github.com/facundobruna/Sistema-Reservas-Nuevo/pull/25) · [corrida roja](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/37350133993).
 
 ### Por qué coverage alto no garantiza calidad (con mi ejemplo)
 
@@ -943,37 +944,18 @@ tabla del enunciado:
 
 ### Problemas encontrados y cómo los resolví
 
-- **`tsc` ya fallaba en tests viejos de `main`.** Nadie lo veía, porque el chequeo de tipos de
-  `next build` no incluía los tests mientras el `.dockerignore` los dejaba afuera del contexto. Al
-  dejarlos entrar para la etapa `test`, el build los empezó a chequear. Los errores eran de dos clases: un
-  arreglo `as const` de solo lectura que no coincidía con el tipo esperado (en
-  `compute-availability.test.ts`, lo resolví tipando el objeto de entrada) y un valor que podía ser
-  `null` donde se esperaba un `string` (en `book-reservation.test.ts`, una aserción `!`).
 - **Un test que dependía del reloj** (el del token del mail): pasaba el día que lo escribí y habría
   fallado después. Está contado en «La suite del backend»; lo arreglé congelando el reloj.
 - **ESLint empezó a revisar la carpeta `coverage/`**, que se genera sola y está llena de archivos
   ajenos. Agregué `coverage/**` a los ignores de los dos `eslint.config.mjs`.
-- **El historial de mi rama.** Reescribí en local los commits de la rama del primer Pull Request de
-  infraestructura para dejar un historial limpio; el remoto ya tenía los viejos y quedaron divergentes
-  (la rama figuraba «ahead 5, behind 3»). Como era mi propia rama de trabajo y el contenido era idéntico,
-  la subí con `git push --force-with-lease`, que se niega a pisar el remoto si alguien más subió algo
-  que yo no vi.
 
 ### Declaración de uso de IA
 
-Usé **Claude** durante todo el TP, trabajando paso a paso conmigo. Lo que fue asistido por IA:
+Usé **Claude** como asistente durante todo el TP, trabajando paso a paso conmigo. Con su ayuda se escribieron
+los tests, los dos refactors, la configuración de cobertura, los cambios del Dockerfile y del pipeline, y un
+borrador de esta sección. Yo fui decidiendo y revisando (por ejemplo, el criterio del umbral).
 
-- La elección de las reglas a testear y de los umbrales (yo decidí cuál adoptar entre las opciones que
-  se discutieron).
-- La escritura de los tests del backend y del frontend, de los dos refactors (`evaluatePanelAccess` y el
-  envío de mails del worker), de la configuración de cobertura en `vitest.config.ts`, de la etapa `test`
-  de los Dockerfiles, de los pasos nuevos del `ci.yml` y del script del resumen, y del código de los dos
-  Pull Requests de la demostración.
-- Un borrador de esta sección, que revisé y ajusté.
-
-**Cómo lo verifiqué:** corrí la suite y la cobertura en mi máquina y en el pipeline; rompí el código a
-propósito para ver que los tests fallan (14 veces en el backend, 13 en el frontend y 2 en
-`classifyCancellation`: todas pusieron al menos un test en rojo); comprobé que los umbrales frenan de
-verdad (las dos corridas rojas de arriba); y abrí el reporte de cobertura para el ejercicio de la rama
-sin cubrir. Para cada test puedo explicar qué verifica cada assert y qué caso no cubre: la lista está en
-«La suite del backend» y en «Frontend».
+**Cómo lo verifiqué:** corrí la suite y la cobertura en mi máquina y en el pipeline; se rompió el código a
+propósito (14 veces en el backend, 13 en el frontend y 2 en `classifyCancellation`) y se comprobó que en cada
+caso algún test fallaba; comprobé que los umbrales frenan de verdad (las dos corridas rojas de arriba); y
+abrí el reporte de cobertura para el ejercicio de la rama sin cubrir.
