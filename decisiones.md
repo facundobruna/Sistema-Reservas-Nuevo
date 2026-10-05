@@ -905,7 +905,7 @@ dos ramas, sin ningún test. Es del frontend, porque ahí el piso es más exigen
 código para romperlo. `build-frontend` se pone en rojo en **las dos métricas**: líneas 87,5 % contra 96 %
 y ramas 80,76 % contra 95 %. Lo dejé con el título «NO MERGEAR» y **no le agregué tests**: queda abierto
 y rojo hasta la defensa, y como `build-frontend` es un required check, `main` no deja mergearlo.
-PENDIENTE-URL del Pull Request abierto. [Corrida roja](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/37350133993).
+[Pull Request #25 (abierto y en rojo)](https://github.com/facundobruna/Sistema-Reservas-Nuevo/pull/25) · [corrida roja](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/37350133993).
 
 ### Por qué coverage alto no garantiza calidad (con mi ejemplo)
 
