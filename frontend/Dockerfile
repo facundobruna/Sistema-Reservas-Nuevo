@@ -5,7 +5,7 @@
 #
 #  Este contenedor sirve las pantallas y nada más: no tiene ORM, ni driver de
 #  Postgres, ni el secreto de firma de sesiones. Todo lo que necesita se lo
-#  pide por HTTP al backend (ver BACKEND_INTERNAL_URL en next.config.ts).
+#  pide por HTTP al backend (ver BACKEND_INTERNAL_URL en src/proxy.ts).
 #
 #  Cuatro etapas: deps → builder → (test | runner). No hay etapa `migrator`
 #  acá: el esquema de la base es asunto del backend. `test` no se publica: es
