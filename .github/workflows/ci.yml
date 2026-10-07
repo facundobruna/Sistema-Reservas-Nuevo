@@ -241,3 +241,57 @@ jobs:
           tags: sistema-reservas-migrate:ci
           cache-from: type=gha,scope=migrate
           cache-to: type=gha,mode=max,scope=migrate
+
+  # ---------------------------------------------------------------------------
+  # Deploy a QA (TP6). La promoción arranca donde termina la verificación.
+  # ---------------------------------------------------------------------------
+  deploy-qa:
+    runs-on: ubuntu-latest
+    # Sin los tres checks en verde no hay deploy. `needs` es la compuerta.
+    needs: [build-backend, build-frontend, build-migrate]
+    # Los PRs verifican; solo un push a main despliega. En un PR este job sale
+    # salteado (y los de PROD, que dependen de éste, también).
+    if: github.ref == 'refs/heads/main'
+    # Conecta el job al environment `qa`: de ahí salen los secrets (los hooks de
+    # Render de QA) y en ese environment queda el historial de despliegues.
+    environment: qa
+    steps:
+      # El `&ref=` es lo importante. Un hook pelado despliega la PUNTA de la rama,
+      # no el commit que este pipeline acaba de verificar: con dos merges seguidos,
+      # la corrida del primero desplegaría el segundo, que todavía no pasó por
+      # nada. Con `&ref=$GITHUB_SHA` Render despliega exactamente este commit.
+      # Va con `&` y no con `?` porque la URL del hook ya trae un `?key=...`.
+      - name: Disparar el deploy en Render (API y front) del commit verificado
+        env:
+          HOOK_API: ${{ secrets.RENDER_HOOK_API_QA }}
+          HOOK_FRONT: ${{ secrets.RENDER_HOOK_FRONT_QA }}
+        run: |
+          curl -fsS --max-time 30 "$HOOK_API&ref=$GITHUB_SHA"
+          curl -fsS --max-time 30 "$HOOK_FRONT&ref=$GITHUB_SHA"
+
+      # Smoke test: ¿QA contesta? Reintenta (30 veces, cada 20 s = hasta 10 min)
+      # porque el free tier de Render duerme los servicios y el deploy reconstruye
+      # desde el repo: despertar y arrancar tarda minutos. Un curl único daría
+      # falsos rojos. Cada curl lleva --max-time: un servicio despertando acepta
+      # la conexión y no contesta, y sin tope el job se colgaría.
+      - name: Smoke test (espera a que QA conteste)
+        shell: bash
+        env:
+          URL_API: https://reserves-api-qa.onrender.com
+          URL_FRONT: https://reservas-front-qa.onrender.com
+        run: |
+          echo "Esperando a que QA esté vivo..."
+          for i in $(seq 1 30); do
+            # 1) la API: /health toca la base (select 1), así que devuelve error si
+            #    la connection string está rota; no basta con que el proceso viva.
+            # 2) el front sirviendo su portada.
+            # 3) el front llegando a la API a través de su proxy (variable de entorno).
+            if curl -fsS --max-time 10 "$URL_API/api/v1/health" \
+               && curl -fsS --max-time 10 "$URL_FRONT/" > /dev/null \
+               && curl -fsS --max-time 10 "$URL_FRONT/api/v1/health" > /dev/null; then
+              echo "QA responde (API + base + front + proxy)"; exit 0
+            fi
+            echo "intento $i/30: todavía no, espero 20 s"
+            sleep 20
+          done
+          echo "QA no respondió a tiempo"; exit 1
