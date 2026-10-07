@@ -9,7 +9,7 @@ export default function Home() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
       <p className="mb-3 font-mono text-xs tracking-wide text-muted-foreground uppercase">
-        Demo · Fuego Norte
+        Demo · Fuego Norte · Entrega TP6
       </p>
 
       <h1 className="mb-4 font-display text-display-md text-foreground">Sistema de Reservas</h1>
