@@ -5,6 +5,32 @@ el historial es uno solo y es lo que se defiende en el Integrador.
 
 ---
 
+## Enlaces de este TP (TP6)
+
+**a) Los dos paquetes públicos en ghcr.io**, con el tag de un commit de merge a `main`
+(`sha-bb0d23ba0d80c9d499b9839cf76ad6062441cc95`, el merge del Pull Request #28):
+
+- Backend: [sistema-reservas-backend](https://github.com/facundobruna/Sistema-Reservas-Nuevo/pkgs/container/sistema-reservas-backend)
+- Frontend: [sistema-reservas-frontend](https://github.com/facundobruna/Sistema-Reservas-Nuevo/pkgs/container/sistema-reservas-frontend)
+
+**b) Los dos eslabones de la cadena** (mismo job, mismos pasos; lo único que cambia es el evento):
+
+- Pull Request #28: [corrida del PR](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/37371605315) — el paso «Entrar al registry» aparece **omitido** (skipped) y la imagen no se publica.
+- Merge a `main`: [corrida de `main`](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/37377969261) — «Construir y publicar la imagen» es el **último paso** del job que corrió los tests.
+
+**c) Los ambientes funcionando:**
+
+| | Frontend | API |
+|---|---|---|
+| QA | https://reservas-front-qa.onrender.com | https://reserves-api-qa.onrender.com |
+| PROD | https://sistema-reservas-nuevo.onrender.com | https://reservas-api-prod.onrender.com |
+
+(Son servicios gratuitos que se duermen a los 15 minutos: la primera visita puede tardar cerca de un minuto en responder.)
+
+Release del práctico: [v6.0.0](https://github.com/facundobruna/Sistema-Reservas-Nuevo/releases/tag/v6.0.0), sobre el commit que está desplegado (`f3856b1`).
+
+---
+
 ## TP1 — Git colaborativo
 
 ### Sobre qué repositorio se hizo el TP
@@ -959,3 +985,206 @@ borrador de esta sección. Yo fui decidiendo y revisando (por ejemplo, el criter
 propósito (14 veces en el backend, 13 en el frontend y 2 en `classifyCancellation`) y se comprobó que en cada
 caso algún test fallaba; comprobé que los umbrales frenan de verdad (las dos corridas rojas de arriba); y
 abrí el reporte de cobertura para el ejercicio de la rama sin cubrir.
+
+
+---
+
+## TP6 — CD: ambientes, promoción y rollback
+
+### Qué construí, de un vistazo
+
+El pipeline del TP5 termina en «los tests pasaron». El de este TP sigue: si el commit entró a `main`, **publica
+la imagen**, **despliega solo a QA**, **prueba que QA responde**, **espera a que yo apruebe** y recién entonces
+**despliega a PROD** y prueba también PROD.
+
+```
+Pull Request  →  tests (build-backend / build-frontend / build-migrate)   ← la imagen NO se publica
+push a main   →  tests → publica imagen en ghcr.io (último paso) → deploy-qa → smoke QA
+                                                                  → [aprobación mía] → deploy-prod → smoke PROD
+```
+
+- **Artefacto:** dos imágenes (backend y frontend) en `ghcr.io/facundobruna/…`, con el tag `sha-<commit completo>`.
+- **Ambientes:** `qa` (sin reglas) y `production` (revisor requerido: yo; «prevent self-review» **desactivado**,
+  porque soy el único del repo). Son *environments* de GitHub, no solo ramas ni variables.
+- **Dónde corre:** Render (4 servicios web: API y front, de QA y de PROD) + Neon (2 bases separadas, `app_qa` y `app_prod`).
+- **Cómo se despliega:** el pipeline llama a un *deploy hook* de Render con `&ref=$GITHUB_SHA`, o sea que Render
+  construye **el commit que ya pasó los tests**, no la punta de la rama.
+
+### Por qué publicar solo cuando todo está en verde
+
+La imagen es **el artefacto que se promueve**: lo que llegue a un registro es lo que alguien puede desplegar. Si se
+publicara con cualquier push, el registro se llenaría de imágenes de código que nunca pasó los tests, y un tag con un
+commit no diría nada sobre si ese commit está sano. Con la regla «solo se publica si pasó» el tag tiene un significado
+fuerte: **si existe `sha-X` en el registro, X pasó los tests en `main`**.
+
+Eso lo garantiza una cadena de tres eslabones, y si se corta cualquiera se pierde la garantía:
+
+1. **Nada entra a `main` sin verde:** los *required checks* (`build-backend`, `build-frontend`, `build-migrate`) y la
+   protección de rama del TP1/TP4. Un PR en rojo no se puede mergear.
+2. **Solo `main` publica:** el paso de publicar tiene `push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}`
+   y el login al registro tiene `if: github.event_name == 'push'`. En un PR el paso queda *skipped* (es lo que se ve en el
+   [enlace b)](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/37371605315)).
+3. **Publicar es el último paso del job que corrió los tests:** si una etapa de test falla, el job se corta antes de llegar
+   a publicar. Publicar en otro job separado dejaría una ventana donde la imagen sale sin que los tests hayan terminado.
+
+Cada job tiene `permissions: contents: read, packages: write` y nada más; el login usa `GITHUB_TOKEN`, no un token mío.
+
+### Continuous Delivery vs Continuous Deployment
+
+Lo que hice es **Continuous Delivery**: todo el camino hasta PROD está automatizado y el artefacto siempre está listo,
+pero **hay una aprobación humana antes de producción**. *Continuous Deployment* sería lo mismo **sin** esa aprobación: cada
+commit verde llega a PROD solo. Elegí Delivery porque esto es un sistema que alguien usaría en vivo y el smoke test no
+alcanza para decidir por sí solo (ver más abajo qué prueba y qué no). La aprobación es un humano mirando QA.
+
+Relacionado: **desplegar no es lo mismo que liberar** (*deploy ≠ release*). Desplegar es poner una versión a correr en un
+ambiente; liberar es que los usuarios la vean. Acá coinciden, porque no uso *feature flags*. El tag `v6.0.0` es solo la
+marca del práctico sobre el commit desplegado, no un mecanismo de release.
+
+### Diseño de la cadena y dónde viven los secretos
+
+```
+build-backend ┐
+build-frontend ├─(needs)→ deploy-qa  →(needs)→ deploy-prod
+build-migrate ┘      if: main            environment: production
+                     environment: qa     concurrency: deploy-prod, sin cancelar
+```
+
+- `needs` impone el orden y hace que **si cualquiera de los tres jobs de test falla, no se despliega nada**.
+- `if: github.ref == 'refs/heads/main'` en los jobs de deploy: un PR nunca despliega.
+- `deploy-prod` depende de `deploy-qa`: no se llega a PROD con QA roto.
+- `deploy-prod` tiene su propio grupo de `concurrency` con `cancel-in-progress: false`, porque dos despliegues a PROD en
+  paralelo no tienen sentido y cancelar uno a la mitad tampoco.
+
+**Alcance de los secretos.** Los *deploy hooks* son secretos del **environment**, no del repositorio:
+`RENDER_HOOK_API_QA` y `RENDER_HOOK_FRONT_QA` en `qa`; `RENDER_HOOK_API_PROD` y `RENDER_HOOK_FRONT_PROD` en `production`.
+Así, los hooks de PROD **solo son legibles por un job que ya pasó la aprobación**: un job de un PR o el de QA no puede
+leerlos, ni siquiera por error. Es la razón de que no estén como secretos de repositorio.
+
+Aun así, un hook es una URL secreta: **quien la tenga puede desplegar a ese servicio sin pasar por la aprobación**. La
+aprobación protege el camino del pipeline, no el hook en sí. Por eso los hooks no se pegan en chats ni en commits.
+
+### Cómo decido si apruebo o rechazo
+
+Antes de apretar «Approve» miro tres cosas:
+
+1. **El smoke de QA está en verde** (el job `deploy-qa` terminó bien).
+2. **El cambio ya se ve en QA:** abro el front de QA y compruebo con mis ojos que lo que cambió está ahí.
+3. **Es el commit correcto y no hay otra corrida esperando:** el workflow cancela corridas viejas de la misma rama si entra
+   otro merge, así que si hay dos esperando aprobación puedo estar aprobando una y perder la otra. Confirmo el SHA de la
+   corrida y que sea la única pendiente.
+
+Si algo de eso falla, **rechazo** y dejo un motivo escrito en la aprobación. Lo probé con un rechazo real:
+[corrida 37662264293](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/37662264293) — el intento rechazado figura en el historial de intentos de esa corrida (el motivo que escribí fue algo como «rechazo por prueba»; GitHub ya no me muestra el comentario, así que lo cito de memoria); luego re-ejecuté
+los jobs y el [intento 3 quedó aprobado](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/37662264293/attempts/3).
+Después, con un cambio visible a propósito (la etiqueta «Entrega TP6» de la portada, PR #32), hice la aprobación «de
+verdad» viendo el cambio en QA: [corrida 37674172166](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/37674172166).
+
+### Configuración en runtime: una sola imagen para todos los ambientes
+
+Al querer usar la **misma imagen del front** en QA y PROD me encontré con un error mío: el front tenía la URL del backend
+en `rewrites()` de `next.config.ts`, y Next evalúa `rewrites()` **al compilar**, así que la URL del backend quedaba
+horneada en la imagen. Con eso habría que construir una imagen del front por ambiente, y ya no sería «la misma» que probé.
+
+Lo resolví moviendo esa lógica a `frontend/src/proxy.ts` (en Next 16 el antiguo *middleware* se llama `proxy`), que se
+ejecuta **por pedido** y lee `BACKEND_INTERNAL_URL` de las variables de entorno en ese momento
+(`frontend/src/lib/api/backend-destination.ts`). Quedó con tests unitarios (4 casos, incluido «lee la variable en cada
+llamada»). Resultado: **una imagen, distinta configuración por servicio**. Cambia la variable de entorno en Render, no la
+imagen. Pull Request: [#29](https://github.com/facundobruna/Sistema-Reservas-Nuevo/pull/29).
+
+### Bases de datos separadas
+
+QA y PROD tienen cada uno su propia base en Neon (`app_qa`, `app_prod`) con su cadena de conexión, y cada servicio de
+Render solo conoce la suya. Para **comprobar que de verdad son distintas** (no solo que tienen nombres distintos) inserté
+una fila de prueba (`slug = soy-prod`) únicamente en `app_prod` y verifiqué que consultándola desde QA no aparece. Después la borré de `app_prod`. Las
+migraciones las apliqué en cada base con la imagen `migrator`, a mano.
+
+### Letra chica de la capa gratuita
+
+- Render gratis: **750 horas por mes** de instancia y el servicio se **duerme a los 15 minutos** sin tráfico; despertarlo
+  tarda entre ~50 segundos y 1 minuto.
+- Render: **500 minutos de build por mes** compartidos; cada deploy construye desde el repo, así que muchos deploys los
+  consumen.
+- Neon: **0,5 GB** de almacenamiento por proyecto en el plan gratuito. Elegí Neon (y no la base de Render) porque la base
+  gratuita de **Render Postgres expira a los 30 días**.
+- Lo viví en la práctica: en el primer smoke de QA ([corrida 37658430547](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/37658430547))
+  el intento 1 se pasó de tiempo porque el servicio estaba dormido y el intento 2 pasó. Por eso el smoke reintenta
+  (30 intentos cada 20 s, con `--max-time` en cada `curl`) en vez de fallar al primer timeout.
+
+### Qué pierdo al construir en Render: se rompe la garantía de «la misma imagen»
+
+Publico las imágenes en ghcr.io, pero **Render no las usa**: en el plan gratuito construye **desde el repositorio** con el
+Dockerfile (la última etapa, `runner`). Es decir, la imagen que probaron los tests y la que corre en Render se construyen
+por separado a partir del mismo commit, no son literalmente el mismo artefacto. Si algo cambia entre ambas construcciones
+(una dependencia sin versión fija, la imagen base) podrían diferir. Dejo la imagen de ghcr.io como artefacto verificado, y
+esa brecha es lo que se cierra en el TP7, desplegando **la imagen del registro** en vez de reconstruir.
+
+### Qué prueba el smoke test y qué no
+
+Después de cada deploy, el pipeline consulta tres URLs: `/api/v1/health` de la API, `/` del front y `/api/v1/health` **a
+través del front** (esto verifica que `proxy.ts` y `BACKEND_INTERNAL_URL` estén bien conectados). El health de la API hace
+un `select 1`, así que también prueba que la base responde (devuelve 503 si no).
+
+**Lo que prueba:** el servicio levanta, responde, llega a la base y el front se conecta al backend.
+**Lo que no prueba:**
+
+- **Qué versión está corriendo.** Render construye en segundo plano y mientras tanto sigue sirviendo la versión anterior,
+  así que el smoke puede dar **verde contra la versión vieja**. El endpoint de health no informa el commit.
+- Que la funcionalidad nueva ande: por eso mi criterio de aprobación incluye *mirar* el cambio en QA.
+- Que los datos sean correctos ni que las migraciones estén aplicadas.
+
+### Patrón de despliegue y plan de rollback
+
+**Patrón elegido: blue-green.** Se mantienen dos entornos de producción idénticos; el tráfico va a uno (blue), se despliega
+la versión nueva al otro (green), se prueba, y se cambia el tráfico de un golpe. Para rollback se vuelve a cambiar el
+tráfico: es inmediato y sin reconstruir. Lo elegiría para un sistema de reservas real porque el costo de un error en
+producción es alto (reservas perdidas) y la vuelta atrás es rapidísima y no depende de que el build ande.
+
+**Lo que tengo hoy, siendo honesto:** no implementé blue-green; lo que hay es QA como ensayo previo más reemplazo del
+servicio por parte de Render. Blue-green me exigiría duplicar PROD (más costo, y la capa gratuita no alcanza) y tener una
+forma de cambiar el tráfico, y además las migraciones de base tendrían que ser compatibles con las dos versiones a la vez.
+Lo que Render hace por dentro durante el reemplazo no lo verifiqué.
+
+**Rollback que sí probé.** Vuelvo a una versión buena disparando los hooks con el **SHA anterior**: en GitHub, *Re-run job*
+sobre el `deploy-prod` de una corrida vieja y aprobar. Lo hice volviendo al commit `735b6c5` (merge del PR #31):
+ambos servicios de PROD quedaron desplegados a las 4:59:34 PM (GMT-3) por *Deploy Hook*. **Tiempo medido en el panel de
+Deploys de Render: API 25,0 s, front 54,0 s → ≈54 s desde que se dispara el hook hasta que está vivo.** No incluye el
+tiempo humano de decidir ni de aprobar.
+
+**Lo que el rollback no deshace:** la base. Si el despliegue malo trajo una migración, volver el código no la revierte, y
+el código viejo puede no entender el esquema nuevo. Mis migraciones son manuales; en un cambio de esquema destructivo el rollback de código solo no alcanza
+(habría que pensar también cómo volver la base).
+
+### Problemas encontrados y cómo los resolví
+
+- **La primera corrida de `deploy-prod` desplegó sin pedir aprobación.** La regla de «revisor requerido» del environment no
+  se había guardado. Lo noté porque no me apareció el botón de aprobar; guardé la regla y re-ejecuté los jobs. Lección: ver
+  una aprobación pedirse una vez antes de confiar en que el gate funciona.
+- **Error de tipeo en la variable del front de QA** (`reserves` en vez de `reservas`): el health pasado por el front daba
+  *Internal Server Error* mientras el de la API andaba. Lo encontré justamente porque el smoke chequea el health a través
+  del front. Corregí la variable.
+- **Cadena de conexión con contraseña pegada en el chat** (dos veces): reseteé la contraseña de `neondb_owner` en Neon y
+  copié las cadenas nuevas. Los hooks y las cadenas no se pegan más en conversaciones.
+- **Rollback desde la terminal falló** (variables de hook vacías, «Bad hostname»). En vez de seguir peleando con la
+  terminal usé el *Re-run job* de la interfaz de GitHub, que es el camino que el pipeline ya protege con la aprobación.
+- **Error 500 de GitHub al crear el environment:** era transitorio; reintenté y anduvo.
+- **Una copia del repo en Windows quedó en un merge a medias** (261 archivos en staging): `git merge --abort`, una rama de
+  respaldo y `git reset --hard origin/main`.
+- **Smoke de QA con el primer intento caído por arranque en frío:** explicado en la letra chica; el reintento lo absorbe.
+
+### Límites que conozco
+
+- Las **migraciones no están automatizadas** en el pipeline: si cambia el esquema hay que aplicarlas a mano en cada base.
+- Los hooks saltean la aprobación (son un secreto): solo valen mientras se mantengan privados.
+- El smoke no identifica la versión desplegada (arriba).
+- Render reconstruye desde el repo (arriba, TP7).
+
+### Declaración de uso de IA
+
+Usé **Claude** como asistente durante todo el TP, paso a paso. Con su ayuda se escribieron el cambio de `proxy.ts` y sus
+tests, los jobs de publicación y de deploy en `ci.yml` y el borrador de esta sección. Las decisiones de diseño las tomé yo
+(patrón de despliegue, criterios de aprobación, proveedor), y la configuración de Render, Neon y los environments la hice yo
+en las interfaces.
+
+**Cómo lo verifiqué:** miré en las corridas que «Entrar al registry» queda omitido en un PR y que publicar es el último paso
+en `main`; comprobé las imágenes con el tag del commit; verifiqué las dos bases con una fila que solo existe en PROD;
+probé la aprobación y un rechazo reales; y medí el rollback en el panel de Deploys de Render.
