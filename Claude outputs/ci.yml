@@ -1,0 +1,358 @@
+name: CI
+
+# Cuándo corre el pipeline.
+on:
+  pull_request:
+    branches: [main]   # el que hace el trabajo: verifica ANTES de que el código entre a main
+  push:
+    branches: [main]   # para que main tenga su propia corrida, que es la que lee el badge
+
+# Una corrida por rama a la vez. Si empujo un commit nuevo mientras la corrida
+# anterior de ese mismo Pull Request sigue trabajando, la vieja se cancela: su
+# resultado ya no le sirve a nadie, porque verifica un código que quedó atrás.
+# Ahorra minutos de runner y evita que el check quede reportando un estado viejo.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+# Desde la separación back/front son TRES jobs y no dos: hay tres imágenes que
+# construir. Corren en paralelo y no comparten nada — si se rompe una, quiero
+# enterarme aunque las otras dos compilen bien.
+jobs:
+  # ---------------------------------------------------------------------------
+  # El backend: etapa `runner` de backend/Dockerfile (la imagen de la API) y,
+  # además, su etapa `test` (tests unitarios + cobertura, TP5).
+  # ---------------------------------------------------------------------------
+  build-backend:
+    runs-on: ubuntu-latest
+    # Permisos del GITHUB_TOKEN para ESTE job (y no para todo el workflow): leer el
+    # código y escribir paquetes. Es lo que permite publicar en ghcr.io sin
+    # guardar ninguna contraseña en el repo.
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Qué estamos verificando
+        env:
+          # En un pull_request, github.ref_name vale "<numero>/merge" y no dice nada.
+          # head_ref es el nombre real de la rama que se está verificando.
+          RAMA: ${{ github.head_ref || github.ref_name }}
+        run: echo "Rama $RAMA · commit $GITHUB_SHA"
+
+      - name: Bajar el código al runner
+        uses: actions/checkout@v6
+
+      - name: Preparar el constructor que sabe cachear
+        # El constructor de fábrica guarda las capas en el disco de la máquina, y
+        # esa máquina se destruye al terminar. Éste sabe exportarlas al almacén de
+        # GitHub. Sin este paso, el build falla al intentar exportar el cache.
+        uses: docker/setup-buildx-action@v4
+
+      - name: Entrar al registry
+        # Solo en push (a main): en un pull_request no se publica nada, así que
+        # ni siquiera se abre sesión. Este paso aparece "skipped" en la corrida
+        # del PR: es la prueba de que el PR no tiene camino hacia el registry.
+        if: github.event_name == 'push'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # --- Tests y cobertura (TP5) -------------------------------------------
+      # La etapa `test` del Dockerfile corre vitest con cobertura. Se construye
+      # como imagen (load: true la deja disponible para `docker run` en este
+      # mismo runner) y se ejecuta aparte: si el umbral falla, la imagen igual
+      # existe y el reporte igual se escribe.
+      - name: Construir la etapa de tests del backend
+        uses: docker/build-push-action@v7
+        with:
+          context: ./backend
+          target: test
+          load: true                 # la deja en el Docker local del runner, para poder correrla
+          push: false
+          tags: sistema-reservas-backend-test:ci
+          # Solo lee: reutiliza las capas del build anterior (misma `builder`)
+          # y no exporta nada, para no pisar el cache del scope de arriba.
+          cache-from: type=gha,scope=backend
+
+      - name: Correr los tests y medir la cobertura (backend)
+        # El código de salida de `docker run` es el de vitest: distinto de cero si
+        # un test falla O si la cobertura queda bajo el umbral. Eso pone el job en
+        # rojo, y por eso build-backend es un check requerido que puede fallar
+        # por cobertura. El reporte se escribe en una carpeta montada para que
+        # sobreviva al contenedor (COVERAGE_DIR, ver vitest.config.ts).
+        run: |
+          mkdir -p backend-coverage
+          docker run --rm \
+            -e COVERAGE_DIR=/salida/reporte \
+            -v "$GITHUB_WORKSPACE/backend-coverage:/salida" \
+            sistema-reservas-backend-test:ci
+
+      - name: Mostrar la cobertura en el resumen de la corrida
+        # `!cancelled()` y no el `success()` implícito: si el paso anterior falló
+        # por el umbral, justo entonces queremos ver los números.
+        if: ${{ !cancelled() }}
+        run: node .github/scripts/coverage-summary.mjs "Backend" backend-coverage/reporte/coverage-summary.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guardar el reporte de cobertura (backend)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-backend   # nombre propio: dos artefactos con el mismo nombre rompen la corrida
+          path: backend-coverage/reporte
+          if-no-files-found: error
+
+      # --- Publicar (TP6) -----------------------------------------------------
+      # ÚLTIMO paso del job, a propósito: si arriba falló el build o un test, el
+      # job se corta ahí y esto nunca corre. Nada se publica sin haber pasado
+      # por los tests en este mismo job. Y `push` solo vale true en un push a
+      # main: en un PR el mismo paso construye, pero no publica.
+      # El tag es el commit exacto: la imagen se puede rastrear hasta su código.
+      # El nombre va en minúsculas escrito a mano: ghcr.io rechaza mayúsculas.
+      - name: Construir y publicar la imagen del backend
+        uses: docker/build-push-action@v7
+        with:
+          context: ./backend
+          target: runner
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: ghcr.io/facundobruna/sistema-reservas-backend:sha-${{ github.sha }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+  # ---------------------------------------------------------------------------
+  # El frontend: etapa `runner` de frontend/Dockerfile y su etapa `test`.
+  # ---------------------------------------------------------------------------
+  build-frontend:
+    runs-on: ubuntu-latest
+    # Permisos del GITHUB_TOKEN para ESTE job (y no para todo el workflow): leer el
+    # código y escribir paquetes. Es lo que permite publicar en ghcr.io sin
+    # guardar ninguna contraseña en el repo.
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Qué estamos verificando
+        env:
+          RAMA: ${{ github.head_ref || github.ref_name }}
+        run: echo "Rama $RAMA · commit $GITHUB_SHA"
+
+      - name: Bajar el código al runner
+        uses: actions/checkout@v6
+
+      - name: Preparar el constructor que sabe cachear
+        uses: docker/setup-buildx-action@v4
+
+      - name: Entrar al registry
+        # Solo en push (a main): en un pull_request no se publica nada, así que
+        # ni siquiera se abre sesión. Este paso aparece "skipped" en la corrida
+        # del PR: es la prueba de que el PR no tiene camino hacia el registry.
+        if: github.event_name == 'push'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # --- Tests y cobertura (TP5) -------------------------------------------
+      # La etapa `test` del Dockerfile corre vitest con cobertura. Se construye
+      # como imagen (load: true la deja disponible para `docker run` en este
+      # mismo runner) y se ejecuta aparte: si el umbral falla, la imagen igual
+      # existe y el reporte igual se escribe.
+      - name: Construir la etapa de tests del frontend
+        uses: docker/build-push-action@v7
+        with:
+          context: ./frontend
+          target: test
+          load: true                 # la deja en el Docker local del runner, para poder correrla
+          push: false
+          tags: sistema-reservas-frontend-test:ci
+          # Solo lee: reutiliza las capas del build anterior (misma `builder`)
+          # y no exporta nada, para no pisar el cache del scope de arriba.
+          cache-from: type=gha,scope=frontend
+
+      - name: Correr los tests y medir la cobertura (frontend)
+        # El código de salida de `docker run` es el de vitest: distinto de cero si
+        # un test falla O si la cobertura queda bajo el umbral. Eso pone el job en
+        # rojo, y por eso build-frontend es un check requerido que puede fallar
+        # por cobertura. El reporte se escribe en una carpeta montada para que
+        # sobreviva al contenedor (COVERAGE_DIR, ver vitest.config.ts).
+        run: |
+          mkdir -p frontend-coverage
+          docker run --rm \
+            -e COVERAGE_DIR=/salida/reporte \
+            -v "$GITHUB_WORKSPACE/frontend-coverage:/salida" \
+            sistema-reservas-frontend-test:ci
+
+      - name: Mostrar la cobertura en el resumen de la corrida
+        # `!cancelled()` y no el `success()` implícito: si el paso anterior falló
+        # por el umbral, justo entonces queremos ver los números.
+        if: ${{ !cancelled() }}
+        run: node .github/scripts/coverage-summary.mjs "Frontend" frontend-coverage/reporte/coverage-summary.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guardar el reporte de cobertura (frontend)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-frontend   # nombre propio: dos artefactos con el mismo nombre rompen la corrida
+          path: frontend-coverage/reporte
+          if-no-files-found: error
+
+      # --- Publicar (TP6) -----------------------------------------------------
+      # ÚLTIMO paso del job, a propósito: si arriba falló el build o un test, el
+      # job se corta ahí y esto nunca corre. Nada se publica sin haber pasado
+      # por los tests en este mismo job. Y `push` solo vale true en un push a
+      # main: en un PR el mismo paso construye, pero no publica.
+      # El tag es el commit exacto: la imagen se puede rastrear hasta su código.
+      # El nombre va en minúsculas escrito a mano: ghcr.io rechaza mayúsculas.
+      - name: Construir y publicar la imagen del frontend
+        uses: docker/build-push-action@v7
+        with:
+          context: ./frontend
+          target: runner
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: ghcr.io/facundobruna/sistema-reservas-frontend:sha-${{ github.sha }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+  # ---------------------------------------------------------------------------
+  # Las migraciones: etapa `migrator` de backend/Dockerfile.
+  # ---------------------------------------------------------------------------
+  build-migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Qué estamos verificando
+        env:
+          RAMA: ${{ github.head_ref || github.ref_name }}
+        run: echo "Rama $RAMA · commit $GITHUB_SHA"
+
+      - name: Bajar el código al runner
+        uses: actions/checkout@v6
+
+      - name: Preparar el constructor que sabe cachear
+        uses: docker/setup-buildx-action@v4
+
+      - name: Construir la imagen de migraciones
+        uses: docker/build-push-action@v7
+        with:
+          context: ./backend
+          target: migrator
+          push: false
+          tags: sistema-reservas-migrate:ci
+          cache-from: type=gha,scope=migrate
+          cache-to: type=gha,mode=max,scope=migrate
+
+  # ---------------------------------------------------------------------------
+  # Deploy a QA (TP6). La promoción arranca donde termina la verificación.
+  # ---------------------------------------------------------------------------
+  deploy-qa:
+    runs-on: ubuntu-latest
+    # Sin los tres checks en verde no hay deploy. `needs` es la compuerta.
+    needs: [build-backend, build-frontend, build-migrate]
+    # Los PRs verifican; solo un push a main despliega. En un PR este job sale
+    # salteado (y los de PROD, que dependen de éste, también).
+    if: github.ref == 'refs/heads/main'
+    # Conecta el job al environment `qa`: de ahí salen los secrets (los hooks de
+    # Render de QA) y en ese environment queda el historial de despliegues.
+    environment: qa
+    steps:
+      # TP7: el hook ya no dice QUÉ COMMIT construir sino QUÉ IMAGEN ejecutar.
+      # Render no compila nada: baja `ghcr.io/...:sha-<commit>` (la imagen que
+      # este mismo pipeline acaba de construir y publicar) y la ejecuta tal cual.
+      # `imgURL` va como un parámetro más de la URL del hook (que ya trae `?key=...`):
+      # `--get --data-urlencode` lo agrega con `&` y le codifica los `:` y `/`.
+      # La URL del hook va ÚLTIMA: es el único argumento suelto.
+      # Nombre del paquete escrito a mano y en minúsculas (`github.repository`
+      # trae mayúsculas y el registry las rechaza).
+      - name: Desplegar en QA la IMAGEN del commit (API y front)
+        env:
+          HOOK_API: ${{ secrets.RENDER_HOOK_API_QA }}
+          HOOK_FRONT: ${{ secrets.RENDER_HOOK_FRONT_QA }}
+        run: |
+          IMG_API="ghcr.io/facundobruna/sistema-reservas-backend:sha-${{ github.sha }}"
+          IMG_FRONT="ghcr.io/facundobruna/sistema-reservas-frontend:sha-${{ github.sha }}"
+          echo "Imagen de la API:   $IMG_API"
+          echo "Imagen del front:   $IMG_FRONT"
+          curl -fsS --max-time 30 --get --data-urlencode "imgURL=$IMG_API" "$HOOK_API"
+          curl -fsS --max-time 30 --get --data-urlencode "imgURL=$IMG_FRONT" "$HOOK_FRONT"
+
+      # Smoke test: ¿QA contesta? Reintenta (30 veces, cada 20 s = hasta 10 min)
+      # porque el free tier de Render duerme los servicios y el deploy baja y arranca
+      # la imagen: despertar y arrancar tarda minutos. Un curl único daría
+      # falsos rojos. Cada curl lleva --max-time: un servicio despertando acepta
+      # la conexión y no contesta, y sin tope el job se colgaría.
+      - name: Smoke test (espera a que QA conteste)
+        shell: bash
+        env:
+          URL_API: https://reserves-api-qa.onrender.com
+          URL_FRONT: https://reservas-front-qa.onrender.com
+        run: |
+          echo "Esperando a que QA esté vivo..."
+          for i in $(seq 1 30); do
+            # 1) la API: /health toca la base (select 1), así que devuelve error si
+            #    la connection string está rota; no basta con que el proceso viva.
+            # 2) el front sirviendo su portada.
+            # 3) el front llegando a la API a través de su proxy (variable de entorno).
+            if curl -fsS --max-time 10 "$URL_API/api/v1/health" \
+               && curl -fsS --max-time 10 "$URL_FRONT/" > /dev/null \
+               && curl -fsS --max-time 10 "$URL_FRONT/api/v1/health" > /dev/null; then
+              echo "QA responde (API + base + front + proxy)"; exit 0
+            fi
+            echo "intento $i/30: todavía no, espero 20 s"
+            sleep 20
+          done
+          echo "QA no respondió a tiempo"; exit 1
+  # ---------------------------------------------------------------------------
+  # Deploy a PRODUCCIÓN (TP6). Acá el pipeline se frena y espera a una persona.
+  # ---------------------------------------------------------------------------
+  deploy-prod:
+    runs-on: ubuntu-latest
+    # PROD solo después de que QA quedó vivo (deploy y smoke en verde). No repite
+    # el `if` de la rama: lo hereda por la cadena, porque deploy-qa ya solo corre
+    # en main y, si deploy-qa se saltea, este job también.
+    needs: deploy-qa
+    # El environment `production` tiene "Required reviewers": al llegar acá la
+    # corrida queda en "Waiting for review" hasta que alguien apruebe o rechace.
+    # Además, los secrets de PROD viven dentro de ese environment: ningún job los
+    # puede leer sin haber pasado por la aprobación.
+    environment: production
+    # Dos despliegues a PROD nunca a la vez, y ninguno se cancela a mitad de camino.
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
+    steps:
+      # TP7: PROD recibe LA MISMA imagen que QA ejecutó y verificó, sin reconstruir
+      # nada: mismo `sha-${{ github.sha }}`. Entre que la corrida queda esperando y
+      # que alguien la aprueba pueden pasar horas y `main` se mueve; como la imagen
+      # lleva el SHA de ESTA corrida, se despliega exactamente lo que se aprobó.
+      - name: Desplegar en PROD la MISMA imagen que verificó QA (API y front)
+        env:
+          HOOK_API: ${{ secrets.RENDER_HOOK_API_PROD }}
+          HOOK_FRONT: ${{ secrets.RENDER_HOOK_FRONT_PROD }}
+        run: |
+          IMG_API="ghcr.io/facundobruna/sistema-reservas-backend:sha-${{ github.sha }}"
+          IMG_FRONT="ghcr.io/facundobruna/sistema-reservas-frontend:sha-${{ github.sha }}"
+          echo "Imagen de la API:   $IMG_API"
+          echo "Imagen del front:   $IMG_FRONT"
+          curl -fsS --max-time 30 --get --data-urlencode "imgURL=$IMG_API" "$HOOK_API"
+          curl -fsS --max-time 30 --get --data-urlencode "imgURL=$IMG_FRONT" "$HOOK_FRONT"
+
+      - name: Smoke test (espera a que PROD conteste)
+        shell: bash
+        env:
+          URL_API: https://reservas-api-prod.onrender.com
+          URL_FRONT: https://sistema-reservas-nuevo.onrender.com
+        run: |
+          echo "Esperando a que PROD esté vivo..."
+          for i in $(seq 1 30); do
+            # API (que toca la base) + portada del front + front llegando a la API
+            # por su proxy. Mismo criterio que en QA.
+            if curl -fsS --max-time 10 "$URL_API/api/v1/health" \
+               && curl -fsS --max-time 10 "$URL_FRONT/" > /dev/null \
+               && curl -fsS --max-time 10 "$URL_FRONT/api/v1/health" > /dev/null; then
+              echo "PROD responde (API + base + front + proxy)"; exit 0
+            fi
+            echo "intento $i/30: todavía no, espero 20 s"
+            sleep 20
+          done
+          echo "PROD no respondió a tiempo"; exit 1
