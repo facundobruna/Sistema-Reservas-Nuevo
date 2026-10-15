@@ -1,0 +1,4 @@
+
+# Playwright (TP7): se generan en cada corrida
+playwright-report/
+test-results/

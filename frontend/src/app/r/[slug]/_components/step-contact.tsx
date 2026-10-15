@@ -84,7 +84,7 @@ export function StepContact({
       <StepHeader title={dict.booking.contact.question} subtitle={subtitle} onBack={onBack} backLabel={dict.common.back} />
 
       {error?.kind === "slot_unavailable" ? (
-        <div className="mb-4 rounded-lg border border-destructive/25 bg-destructive-subtle/40 p-4">
+        <div role="alert" className="mb-4 rounded-lg border border-destructive/25 bg-destructive-subtle/40 p-4">
           <p className="font-medium text-foreground">
             {error.hadZone ? dict.booking.zoneFull.title : dict.errorStates.slotUnavailable.title}
           </p>
@@ -103,7 +103,7 @@ export function StepContact({
           </div>
         </div>
       ) : error?.kind === "generic" ? (
-        <p className="mb-4 text-sm text-destructive">{dict.errorStates.generic.title}</p>
+        <p role="alert" className="mb-4 text-sm text-destructive">{dict.errorStates.generic.title}</p>
       ) : null}
 
       <form onSubmit={handleSubmit} className="space-y-4">
