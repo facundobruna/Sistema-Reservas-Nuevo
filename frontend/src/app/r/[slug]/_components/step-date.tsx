@@ -30,6 +30,7 @@ export function StepDate({
         <OptionChip onClick={() => onSelect(tomorrow)}>{dict.booking.tomorrow}</OptionChip>
         <Input
           type="date"
+          aria-label="Elegir otra fecha"
           min={today}
           className="w-auto min-h-11"
           onChange={(e) => {
