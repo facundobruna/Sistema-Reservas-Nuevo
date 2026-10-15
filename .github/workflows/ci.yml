@@ -303,14 +303,135 @@ jobs:
           done
           echo "QA no respondió a tiempo"; exit 1
   # ---------------------------------------------------------------------------
+  # Pruebas contra QA ya desplegado (TP7). Son el gate de la promoción a PROD.
+  # Orden de la cadena: deploy-qa -> integracion -> e2e -> deploy-prod.
+  # La integración va primero: es más rápida y más barata, y si la API está rota no
+  # vale la pena levantar un navegador para confirmarlo (la e2e queda SALTEADA).
+  # ---------------------------------------------------------------------------
+  integracion:
+    runs-on: ubuntu-latest
+    # Corre DESPUÉS del deploy a QA: le habla al ambiente ya desplegado, no a una copia.
+    # Si `deploy-qa` falla o se saltea (un PR, por ejemplo), este job no corre.
+    needs: deploy-qa
+    steps:
+      - name: Bajar el código al runner
+        uses: actions/checkout@v6
+
+      - name: Preparar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Mismo pnpm que usan los Dockerfiles: lo resuelve corepack con la versión de package.json.
+      - name: Activar pnpm
+        run: corepack enable
+
+      - name: Instalar las dependencias del frontend
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      # Las direcciones de QA llegan por variables de entorno: no están escritas en las pruebas.
+      # `shell: bash` activa `pipefail`, así que el `tee` no esconde el fallo de Playwright:
+      # si la suite falla, este paso falla y el job queda en rojo.
+      - name: Integración contra la API de QA
+        working-directory: frontend
+        shell: bash
+        env:
+          API_BASE_URL: https://reserves-api-qa.onrender.com
+          E2E_BASE_URL: https://reservas-front-qa.onrender.com
+        run: pnpm exec playwright test e2e/api.spec.ts 2>&1 | tee salida-integracion.txt
+
+      # Deja en el resumen de la corrida cuántos tests pasaron, fallaron o se saltearon.
+      - name: Mostrar el resultado en el resumen de la corrida
+        if: always()
+        working-directory: frontend
+        run: |
+          {
+            echo "### Integración contra la API de QA"
+            echo '```'
+            grep -E "^\s+[0-9]+ (passed|failed|skipped|flaky)" salida-integracion.txt || echo "sin resultados"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Siempre, también cuando falla: es lo que se abre para diagnosticar un rojo remoto.
+      - name: Guardar el reporte de Playwright
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-integracion   # nombre propio: dos artefactos con el mismo nombre rompen la corrida
+          path: frontend/playwright-report
+          if-no-files-found: warn
+
+  e2e:
+    runs-on: ubuntu-latest
+    # Corre DESPUÉS del deploy a QA: le habla al ambiente ya desplegado, no a una copia.
+    # Si `integracion` falla o se saltea (un PR, por ejemplo), este job no corre.
+    needs: integracion
+    steps:
+      - name: Bajar el código al runner
+        uses: actions/checkout@v6
+
+      - name: Preparar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Mismo pnpm que usan los Dockerfiles: lo resuelve corepack con la versión de package.json.
+      - name: Activar pnpm
+        run: corepack enable
+
+      - name: Instalar las dependencias del frontend
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      # Chromium + las librerías del sistema que necesita para abrirse en el runner.
+      - name: Instalar el navegador (Chromium)
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Las direcciones de QA llegan por variables de entorno: no están escritas en las pruebas.
+      # `shell: bash` activa `pipefail`, así que el `tee` no esconde el fallo de Playwright:
+      # si la suite falla, este paso falla y el job queda en rojo.
+      - name: E2E contra el front de QA
+        working-directory: frontend
+        shell: bash
+        env:
+          API_BASE_URL: https://reserves-api-qa.onrender.com
+          E2E_BASE_URL: https://reservas-front-qa.onrender.com
+        run: pnpm exec playwright test e2e/reservas.spec.ts 2>&1 | tee salida-e2e.txt
+
+      # Deja en el resumen de la corrida cuántos tests pasaron, fallaron o se saltearon.
+      - name: Mostrar el resultado en el resumen de la corrida
+        if: always()
+        working-directory: frontend
+        run: |
+          {
+            echo "### E2E contra el front de QA"
+            echo '```'
+            grep -E "^\s+[0-9]+ (passed|failed|skipped|flaky)" salida-e2e.txt || echo "sin resultados"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Siempre, también cuando falla: es lo que se abre para diagnosticar un rojo remoto.
+      - name: Guardar el reporte de Playwright
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-e2e   # nombre propio: dos artefactos con el mismo nombre rompen la corrida
+          path: frontend/playwright-report
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
   # Deploy a PRODUCCIÓN (TP6). Acá el pipeline se frena y espera a una persona.
   # ---------------------------------------------------------------------------
   deploy-prod:
     runs-on: ubuntu-latest
-    # PROD solo después de que QA quedó vivo (deploy y smoke en verde). No repite
-    # el `if` de la rama: lo hereda por la cadena, porque deploy-qa ya solo corre
-    # en main y, si deploy-qa se saltea, este job también.
-    needs: deploy-qa
+    # PROD solo después de que QA quedó vivo (deploy y smoke) Y de que las dos
+    # suites de pruebas pasaron contra él (TP7). `needs: e2e` es el gate: si la
+    # integración o la e2e fallan, este job NO arranca ni llega a pedir aprobación.
+    # No repite el `if` de la rama: lo hereda por la cadena. Y no lleva `if: always()`,
+    # `continue-on-error` ni nada que desarme el gate.
+    needs: e2e
     # El environment `production` tiene "Required reviewers": al llegar acá la
     # corrida queda en "Waiting for review" hasta que alguien apruebe o rechace.
     # Además, los secrets de PROD viven dentro de ese environment: ningún job los
