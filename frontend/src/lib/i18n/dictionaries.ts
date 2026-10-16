@@ -69,7 +69,7 @@ export const es = {
       title: "Esa zona ya no tiene lugar a esa hora",
       description: "Elegí otra zona o volvé a elegir horario.",
     },
-    confirmReservation: "Enviar",
+    confirmReservation: "Confirmar reserva",
     confirming: "Confirmando…",
     confirmation: {
       title: "¡Reserva confirmada!",
