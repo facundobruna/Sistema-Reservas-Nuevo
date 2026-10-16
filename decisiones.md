@@ -5,6 +5,47 @@ el historial es uno solo y es lo que se defiende en el Integrador.
 
 ---
 
+## Enlaces del TP7
+
+**a) Los dos paquetes públicos en ghcr.io**, con el tag `sha-<commit>` de lo que está en PROD
+(`sha-15502799f391c60d33bd4b03358ebc53f0af43ff`, el merge del Pull Request #38, el mismo que lleva el tag de git `v7.0.0`):
+
+- Backend: [sistema-reservas-backend](https://github.com/facundobruna/Sistema-Reservas-Nuevo/pkgs/container/sistema-reservas-backend)
+- Frontend: [sistema-reservas-frontend](https://github.com/facundobruna/Sistema-Reservas-Nuevo/pkgs/container/sistema-reservas-frontend)
+
+En cada paquete conviven los tags de todas las corridas de `main` (por ejemplo `sha-295670e65bff750f414f629c7dd06a57cb0bd562`, la corrida verde anterior,
+y `sha-4da281685b31213dd596903d93989f48d82ff73c`, la de la rotura).
+
+**b) La corrida donde la integración quedó VERDE y la e2e ROJA** (rompí la app a propósito, no los tests):
+
+- Commit que rompió la app: [`c852e5c`](https://github.com/facundobruna/Sistema-Reservas-Nuevo/commit/c852e5ce0fef6221229bd0753a7961a5de3ca529)
+  (cambia el texto del botón «Confirmar reserva» por «Enviar»), entrado a `main` con el merge del Pull Request #37:
+  [`4da2816`](https://github.com/facundobruna/Sistema-Reservas-Nuevo/commit/4da281685b31213dd596903d93989f48d82ff73c).
+  (Su mensaje dice `fix:` y es un descuido mío: fue una rotura **intencional** para este TP.)
+- La corrida: [#55, corrida del merge a `main`](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/38810412239) —
+  `deploy-qa` ✅, `integracion` ✅, `e2e` ❌ (2 failed, 1 passed) y **`deploy-prod` omitido (skipped)**: la promoción quedó frenada.
+- Los dos artefactos de esa corrida: `playwright-report-integracion` (verde) y `playwright-report-e2e` (rojo, con captura y trace de los tests que fallaron).
+
+**c) La corrida completa en verde posterior, hasta PROD** (el arreglo es un `git revert` del commit que rompió, Pull Request #38,
+merge `1550279`): [corrida 38967325111](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/38967325111) —
+`deploy-qa`, `integracion` (3 passed), `e2e` (3 passed), aprobación mía y `deploy-prod`, con **el mismo `imgURL`** en los dos deploys.
+(Antes hubo otra corrida verde por el nuevo gate, [38802216773](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/38802216773),
+sobre `295670e`, que es lo que estaba en PROD cuando rompí la app.)
+
+**d) Los ambientes funcionando** (vivos hasta la defensa):
+
+| | Frontend | API |
+|---|---|---|
+| QA | https://reservas-front-qa.onrender.com | https://reserves-api-qa.onrender.com |
+| PROD | https://sistema-reservas-nuevo.onrender.com | https://reservas-api-prod.onrender.com |
+
+(Servicios gratuitos que se duermen a los 15 minutos: la primera visita puede tardar cerca de un minuto.)
+
+Release del práctico: [v7.0.0](https://github.com/facundobruna/Sistema-Reservas-Nuevo/releases/tag/v7.0.0), sobre el commit que está
+desplegado en PROD (`1550279`). Lo único que no es público son los *Events* de Render: los muestro en vivo en la defensa.
+
+---
+
 ## Enlaces de este TP (TP6)
 
 **a) Los dos paquetes públicos en ghcr.io**, con el tag de un commit de merge a `main`
@@ -1188,3 +1229,243 @@ en las interfaces.
 **Cómo lo verifiqué:** miré en las corridas que «Entrar al registry» queda omitido en un PR y que publicar es el último paso
 en `main`; comprobé las imágenes con el tag del commit; verifiqué las dos bases con una fila que solo existe en PROD;
 probé la aprobación y un rechazo reales; y medí el rollback en el panel de Deploys de Render.
+
+---
+
+## TP7 — Contenedores en el pipeline + integración y e2e
+
+### Qué construí, de un vistazo
+
+En el TP6 el pipeline publicaba la imagen en ghcr.io, pero **Render no la usaba**: reconstruía desde el repo. Ahora los cuatro
+servicios (API y front, de QA y de PROD) **ejecutan la imagen del registro**, y entre el deploy a QA y el de PROD hay **dos suites de
+prueba que funcionan como gate**:
+
+```
+push a main → tests → publica imagen sha-<commit> → deploy-qa (imgURL=…:sha-<commit>) → smoke
+            → integracion (API de QA, sin navegador)
+            → e2e (navegador contra el front de QA)
+            → [aprobación mía] → deploy-prod (el MISMO imgURL) → smoke PROD
+```
+
+- **Dos paquetes:** `sistema-reservas-backend` y `sistema-reservas-frontend` (mi app tiene dos Dockerfiles), por eso son **cuatro**
+  servicios image-backed. Como el front y la API se sirven en hosts distintos, `E2E_BASE_URL` (front) y `API_BASE_URL` (API) son distintas.
+- **Cómo le digo a Render qué ejecutar:** el *deploy hook* acepta `imgURL`. El pipeline llama
+  `curl -fsS --max-time 30 --get --data-urlencode "imgURL=ghcr.io/facundobruna/sistema-reservas-backend:sha-<commit>" "$HOOK"`
+  (el hook va al final; `&ref=` del TP6 ya no existe). El nombre de la imagen está escrito en minúsculas en el YAML.
+- **Gate:** `integracion` necesita `deploy-qa`, `e2e` necesita `integracion`, `deploy-prod` necesita `e2e`. Sin `continue-on-error`,
+  sin `|| true` y sin `if: always()` en `deploy-prod`; el revisor requerido del environment `production` sigue ahí.
+
+### Build once, deploy many: qué problema del TP6 resuelve
+
+En el TP6 la imagen de ghcr.io era un artefacto «de adorno»: lo que corría en Render se construía **otra vez**, por servicio y por
+ambiente, a partir del mismo commit. Eso tenía tres problemas concretos:
+
+1. **Lo que aprobé en QA no es lo que corre en PROD.** QA construía el commit X en un momento; PROD lo construía de nuevo después
+   de mi aprobación. Si entre las dos construcciones cambió algo que no está fijado por el commit (la imagen base `node:22-alpine`
+   es un tag que **se mueve**, y paquetes del sistema operativo de la imagen), PROD podía recibir algo distinto de lo que probé.
+   Mi propio ejemplo: el `Dockerfile` del front parte de `node:22-alpine`; con `pnpm install --frozen-lockfile` las dependencias de JS
+   quedan fijadas, pero la base no, y cada construcción nueva es una oportunidad de que difiera.
+2. **Cada deploy gastaba minutos de build** (500 por mes compartidos en la capa gratuita) para reconstruir algo ya construido.
+3. **El rollback del TP6 también reconstruía:** volver atrás era «construir de nuevo una versión vieja», no «volver a ejecutar lo que ya
+   anduvo».
+
+Ahora **se construye una vez** (en el job que corrió los tests, último paso, solo en `main`) y **se despliega muchas veces la misma
+imagen**: QA y PROD reciben el mismo `imgURL` con el mismo tag `sha-<commit>`. Lo que cambia entre ambientes no es la imagen sino
+las variables de entorno de cada servicio.
+
+### Estrategia de etiquetas
+
+- **`sha-<commit completo>` en el registry:** identifica **un commit exacto que pasó los tests en `main`** (solo se publica si
+  corrió todo en verde, TP6). Es lo que uso para **promover**, porque es una referencia estable: si hoy desplegás `sha-X`, mañana
+  `sha-X` sigue siendo lo mismo.
+- **`v7.0.0` en git (y en la release):** le pone **nombre humano** a un commit que decidí que es «la versión que entregué». No
+  es una imagen: apunta a un commit, y de ese commit sale la imagen.
+- **Por qué no publico `latest`:** `latest` es un tag **mutable** que apunta a «lo último que se publicó», no a un commit. Con `latest`
+  dos servicios que se despliegan en momentos distintos pueden terminar con imágenes distintas, un rollback no sabe a qué volver, y
+  no podría decir qué commit está en PROD. Un deploy tiene que apuntar a algo que no se mueve.
+- **Con qué imagen configuré los servicios de Render:** les cambié la fuente a **Existing Image** (no creé servicios nuevos: el
+  historial de Deploys de cada servicio sigue siendo el mismo, con los deploys del TP6 más abajo). La imagen de Settings es
+  `sha-8ca18909d78fec22032ebc631bd316cbaca2a68a`, la del merge del Pull Request #33 del TP6. **No es esa la que corre:** Render la
+  usa solo como punto de partida, y cada vez que el pipeline llama al hook con `imgURL=…:sha-<commit>` pisa esa imagen. Por eso en
+  el panel el encabezado del servicio muestra `8ca18909…` mientras los Events dicen que está corriendo `15502799…`. (Por lo mismo,
+  **no uso «Manual Deploy»**: volvería a desplegar la imagen de Settings, la vieja.)
+- **Quién puede escribir en el registry y con qué credencial:** el paso de publicar usa `GITHUB_TOKEN`, con
+  `permissions: contents: read, packages: write` en ese job y nada más; **no hay ningún token mío en el YAML**. Los paquetes son
+  públicos, así que Render las lee sin credencial.
+- **Dónde viven los hooks:** en secretos de los environments de GitHub (`qa` y `production`). Un hook **saltea** la aprobación (quien
+  lo tenga puede desplegar), así que solo vale mientras siga privado.
+
+### De la release a la imagen, en un paso
+
+`git rev-list -n1 v7.0.0` imprime `15502799f391c60d33bd4b03358ebc53f0af43ff`, y esa etiqueta, precedida por `sha-`, es la que está en
+los dos paquetes: `ghcr.io/facundobruna/sistema-reservas-backend:sha-15502799…` y `…-frontend:sha-15502799…`. El tag `v7.0.0` está sobre
+**el commit que dice Deployments que está en PROD** (el de la corrida 38967325111), no sobre «el último de `main`»: hoy coinciden, pero la
+regla es que el tag sale de lo que realmente está desplegado.
+
+Para comprobarlo bajé las imágenes con `docker pull --platform linux/amd64 …:sha-<commit>`. Sin `--platform` falla con «no matching
+manifest for linux/arm64/v8» porque mi Mac es arm64 y el pipeline construye para `linux/amd64` (la arquitectura de Render): el tag
+**existe**, solo que no hay variante para mi procesador.
+
+### Cómo compruebo, desde afuera, que un entorno ejecuta mi imagen
+
+- **La prueba fuerte son los *Events* de Render:** «Triggered via Deploy Hook» con el `sha-<commit>` de esa corrida. No son
+  públicos: los muestro en vivo en la defensa. Un deploy a mano desde el panel se vería distinto (no diría «Triggered via Deploy Hook»
+  y desplegaría la imagen de Settings), que es como me enteraría de que alguien lo hizo.
+- **Lo que el smoke test no prueba:** solo pregunta si responde. Render construye/arranca en segundo plano y mientras tanto sigue
+  sirviendo la versión anterior, y el `/health` no informa el commit, así que **el smoke puede dar verde contra la versión vieja**.
+- **Un efecto lateral útil:** las e2e prueban **lo que está desplegado**, no mi código local. Lo vi dos veces: la primera, mis e2e
+  fallaron en QA porque el front desplegado todavía no tenía el `aria-label` que agregué (me había olvidado de mergear, y tuve que
+  esperar el deploy antes de que pasen); la segunda, en la corrida roja, el botón «Enviar» **apareció en QA**, y eso prueba que QA estaba ejecutando
+  la imagen rota.
+- **Si el `imgURL` llevara el commit corto:** el tag no existe en el registry y Render contesta 400 («unable to fetch image»); no
+  despliega nada. El hook también rechaza una imagen de **otro nombre** (400: «cannot change the host, project, or image name»),
+  que me pasó cuando mandé una imagen de backend al hook del front.
+
+### Qué elegí probar y qué no (pirámide)
+
+**Integración (3 tests, `frontend/e2e/api.spec.ts`)** — hablan **HTTP directo con la API de QA** (`request` de Playwright), sin navegador y
+sin doubles, contra la base real de QA:
+
+1. **Crear → consultar → cancelar:** crea una reserva con datos únicos, verifica que se puede consultar, la cancela y verifica
+   `status: cancelled` (la limpieza va en un `try/finally`).
+2. **Entrada inválida:** `partySize: 0` devuelve **400** `invalid_input`, la disponibilidad no cambia y no se creó nada (probado
+   también con `/api/v1/me/reservations` sin sesión → 401).
+3. **La disponibilidad devuelve horarios** (la elegí yo): un día abierto trae horarios con hora ISO y `serviceId`, y un lunes (cerrado)
+   trae `[]`. La elegí porque **toda reserva depende de ella** y es lo primero que se rompería si falla la base o el seed.
+
+**E2E (3 flujos, `frontend/e2e/reservas.spec.ts`)** — un navegador (Chromium) contra el **front de QA**, buscando como una persona
+(`getByLabel`, `getByRole`, `getByText`):
+
+1. **Reservar de punta a punta:** el asistente completo hasta «¡Reserva confirmada!», aparece en «Mis reservas», se cancela desde la
+   pantalla y queda «Cancelada».
+2. **Error de validación:** un teléfono inválido («123») muestra el error en pantalla, **no** muestra la confirmación y no queda
+   ninguna reserva.
+3. **Elegir día y ver horarios** (el que elegí yo): al cambiar de fecha el asistente recuerda la hora elegida, y un lunes muestra «No
+   hay horarios disponibles» sin botones de hora.
+
+**Qué NO puse en cada suite y por qué (pirámide):**
+
+- En **integración no puse** nada de la interfaz (textos, botones, el asistente): eso es del navegador. Tampoco las reglas
+  finas (por ejemplo la política de cancelación): ya las cubren los **tests unitarios** del TP5, que son más rápidos
+  y exactos.
+- En **e2e no puse** los casos de borde de la API (muchos valores inválidos, estados raros de la base) ni cada combinación de
+  disponibilidad: es lento (cada flujo pasa por el navegador) y la integración lo prueba mejor. Cada e2e es un camino de usuario
+  completo, no un test de reglas.
+- **Qué prueban los unitarios que estas no deberían:** las reglas puras (por ejemplo la política de cancelación) sin red ni
+  base. La e2e **no debería** repetirlas: si lo hace, un cambio de una regla rompe muchos tests lentos en vez de uno rápido.
+- **Quién me avisa si se rompen:** el pipeline, en cada merge a `main`: si falla una de las dos suites, `deploy-prod` no arranca.
+
+### Integración vs e2e: por qué no es lo mismo (y el par verde/rojo de mi rotura)
+
+La **integración** pregunta «¿la API, con su base real, hace lo que promete?» y no usa navegador. La **e2e** pregunta «¿una persona
+puede hacer esto en pantalla?» y atraviesa todo: navegador, front, `proxy.ts`, API y base. Por eso el **par** de resultados diagnostica:
+
+| Integración | E2E | Qué me dice |
+|---|---|---|
+| ✅ verde | ✅ verde | Todo el camino funciona |
+| ✅ verde | ❌ roja | La API y la base andan; **el problema está del lado del front** (lo que ve o hace el usuario) |
+| ❌ roja | ⏭️ omitida | El problema está en la API o la base; la e2e ni corrió (`needs: integracion`) |
+
+**Mi corrida roja** ([corrida del merge #37](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/38810412239)): cambié el texto
+del botón «Confirmar reserva» a «Enviar» **sin tocar los tests ni la API**. Resultado: integración ✅, e2e ❌ con **2 failed y 1 passed**
+y `deploy-prod` omitido. Sin leer el código ya sabía **dónde buscar**: integración verde = la API responde bien, e2e roja = algo que ve
+el usuario cambió. Los dos tests que fallaron son los que buscan el botón por su nombre; el tercero (elegir día y ver horarios) no lo
+usa y pasó, lo que acota el problema a ese botón. En el reporte de la e2e se ve el error «no encuentro el botón» con captura y trace.
+Lo que **no** pasó gracias al gate: PROD nunca recibió esa imagen (los Events de PROD siguen en `295670e` y no aparece
+`4da2816`).
+
+**Si hubiera roto la API** (por ejemplo, que `partySize: 0` devolviera 200 en vez de 400): la integración habría quedado ❌ y la
+e2e **omitida** (ni llega a correr, porque depende de la integración); el reporte de e2e no existiría.
+
+**Un cambio de una línea que solo la integración atraparía:** que la API acepte `partySize: 0` (devolver 201 en vez de 400). El
+front ya impide ese valor en pantalla, así que la e2e no lo vería y los unitarios no tocan la API ni la base; la integración sí.
+
+**El arreglo:** `git revert` del commit que rompió (Pull Request #38). Elegí revertir y no editar a mano porque el historial dice
+exactamente qué pasó: un commit rompe, otro lo deshace. La corrida que siguió fue verde de punta a punta
+([38967325111](https://github.com/facundobruna/Sistema-Reservas-Nuevo/actions/runs/38967325111)).
+
+### Por qué la integración es «amplia» (contra la API de QA ya desplegada)
+
+Hay dos formas de escribirla: **estrecha** (levantar la API dentro del runner, con una base Postgres como servicio del job) o
+**amplia** (pegarle a la API que ya está desplegada en QA). Elegí la amplia.
+
+- **Lo que gano:** prueba **lo mismo que va a correr** — la imagen real desplegada, sus variables de entorno, la base real de Neon,
+  la red y los hooks. Un error de configuración (variable mal escrita, base sin migrar) lo ve; la estrecha no.
+- **Lo que pierdo:** es más lenta; depende de que QA esté despierta (cold start) y sembrada (el restaurante `demo`);
+  comparte base con la e2e (dato sucio posible, ver abajo); y cuando falla es más difícil saber si falló el código o el
+  ambiente. La estrecha es herméticamente repetible y rápida, pero no prueba el deploy.
+- **Por qué la e2e va contra QA y no contra un localhost en el runner:** por lo mismo. Contra localhost no probaría el
+  `proxy.ts` conectado al backend real, ni la base real, ni lo que realmente se desplegó; solo probaría mi código en un
+  entorno que no existe en producción.
+
+### Cold start y tests flaky
+
+Mi configuración de Playwright (`frontend/playwright.config.ts`) está pensada para la capa gratuita: **timeout de 60 s por test**,
+**15 s por aserción** (los servicios se duermen y el primer pedido puede tardar ~1 minuto), **1 reintento** y `trace: on-first-retry`
+(la traza se guarda solo cuando un test falla la primera vez). El deploy a QA ya espera con el smoke de `/health`, que
+también despierta el servicio antes de que corran las suites.
+
+Un test **flaky** es el que a veces pasa y a veces falla **sin que el código cambie**. Es peor que no tener test: entrena a
+ignorar el rojo («seguro es flaky, re-corré»), y entonces un fallo real se pierde. El reintento **no los esconde**: un test que
+falla y después pasa queda marcado como *flaky* en el reporte y en el resumen del job (que cuenta `passed`, `failed`, `skipped` y
+`flaky`). Y un test que falla **los dos intentos** es un fallo real: es lo que pasó en la corrida roja (cada test fallido gastó sus
+60 s dos veces, de ahí los 4,1 minutos frente a los 12,9 s de la corrida sana). Para no fabricar flakes: las aserciones esperan
+(auto-waiting de Playwright, sin `sleep`), los tests buscan por rol/etiqueta y no por CSS, y cada uno usa **datos únicos**.
+
+### Las dos suites comparten la base de QA
+
+Las dos usan la misma base y entre las dos la usan más tiempo, así que cuidé que una corrida no ensucie a la siguiente:
+
+- Cada test crea **datos únicos** (teléfono derivado de `Date.now()`), así que dos corridas no chocan.
+- La API **no tiene DELETE**: se limpian **cancelando** la reserva (en un `try/finally`, para que también se limpie si el test
+  falla a mitad). Las reservas canceladas y los clientes quedan en la base: es una limitación que conozco.
+- Las dos suites **nunca corren al mismo tiempo**: `e2e` necesita `integracion`, y el workflow cancela la corrida anterior si entra una
+  nueva (`concurrency` con `cancel-in-progress`).
+- Cómo me daría cuenta de que algo ensució: los tests de disponibilidad buscan un día con horarios y **fallan con un mensaje claro**
+  si QA no está sembrada o si se llenó; no lo ocultan.
+
+### La misma imagen del front sirve en QA y en PROD
+
+El front lee la URL del backend en **runtime** (`BACKEND_INTERNAL_URL`, en `frontend/src/proxy.ts`, TP6), no al compilar. Por eso
+la imagen del front es una sola: lo que **se configura por variable** es la URL del backend de cada ambiente; lo que **queda adentro de
+la imagen** es el código y las dependencias. Las variables de los tests (`E2E_BASE_URL`, `API_BASE_URL`) las lee el *runner* del
+pipeline, no la imagen.
+
+### Problemas encontrados y cómo los resolví
+
+- **Hook de la API de QA con error 500** en la primera corrida de `deploy-qa`: el secreto de GitHub tenía un hook viejo o mal
+  copiado. Volví a guardar los cuatro secretos desde Render y anduvo.
+- **Las e2e fallaron contra QA** porque el front desplegado no tenía el `aria-label` que había agregado en el código: me olvidé de
+  hacer el push y el merge, así que QA seguía ejecutando la imagen anterior a ese cambio y las e2e esperaban un elemento que todavía
+  no existía allá. Mergeé los cambios del front (PR #35), dejé que el pipeline los desplegara y recién ahí pasaron las 3.
+  Lección: las e2e prueban **lo que está desplegado**, no mi código local.
+- **Corrí Playwright desde la carpeta `backend`** («No tests found»): tenía la terminal en `backend` y no me había dado cuenta de que
+  había quedado ahí. Lo corrí desde `frontend`, donde viven las e2e, y pasó.
+
+### Límites que conozco
+
+- Los **hooks saltean la aprobación**: son un secreto, y quien lo tenga puede desplegar sin pasar por el revisor.
+- Las **migraciones siguen siendo manuales**; el seed del restaurante `demo` en QA también lo cargué a mano, y la integración
+  amplia depende de él.
+- La base de QA acumula reservas canceladas y clientes de prueba (no hay DELETE).
+- El `deploy` de Render tiene un **límite de pedidos por minuto** en los hooks (vi 10 por minuto en los encabezados).
+- Las imágenes son solo `linux/amd64` (no las puedo ejecutar en mi Mac sin emulación).
+- El smoke sigue sin identificar la versión; la prueba de «qué corre» son los Events de Render, que no son públicos.
+
+**Si mañana cambio Render por otro proveedor de contenedores**, casi todo sobrevive: la imagen y su tag `sha-<commit>`, el gate
+(las suites hablan con URLs por variable), la release y el criterio de promoción. Lo único que se reemplaza es *cómo* se le avisa al
+proveedor qué imagen ejecutar (el hook con `imgURL`).
+
+### Declaración de uso de IA
+
+Usé **Claude** como asistente durante todo el TP, paso a paso. Con su ayuda se escribieron las dos suites de Playwright
+(`api.spec.ts`, `reservas.spec.ts`, `support.ts`), la configuración de Playwright, los jobs `integracion` y `e2e` y los pasos de deploy con
+`imgURL` en `ci.yml`, y el borrador de esta sección. **Las decisiones las tomé yo:** qué flujos probar (elegí la tercera
+de cada suite), integración amplia, qué romper para la corrida roja y cómo arreglarlo, la estrategia de tags y la configuración de
+Render, GitHub y Neon en las interfaces.
+
+**Cómo lo verifiqué:** corrí las dos suites contra QA (3/3 cada una) antes del gate; la corrida roja **la provoqué yo** y comprobé en
+la corrida que integración quedaba verde, e2e roja y `deploy-prod` omitido; revisé los Events de **los cuatro servicios** (aparece el
+`sha-` de cada corrida y, para PROD, que `4da2816` no aparece); bajé las imágenes por tag; y puedo explicar **qué verifica cada test,
+contra qué entorno corre y qué pasa si falla**: las dos suites corren contra QA (la integración contra la API, la e2e contra el
+front), y si fallan frenan la promoción: `deploy-prod` no arranca.
