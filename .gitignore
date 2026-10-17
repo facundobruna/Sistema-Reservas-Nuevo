@@ -53,3 +53,9 @@ build.txt
 salida-tp2.txt
 persistencia.txt
 registry.txt
+
+# Terraform (TP8): el estado tiene contraseñas en texto plano, jamás se commitea
+*.tfstate
+*.tfstate.*
+.terraform/
+*.tfvars
