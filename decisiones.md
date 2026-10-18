@@ -5,6 +5,22 @@ el historial es uno solo y es lo que se defiende en el Integrador.
 
 ---
 
+## Enlaces del TP8
+
+**a) El código de la infraestructura**, en `main`: [carpeta
+`infra/`](https://github.com/facundobruna/Sistema-Reservas-Nuevo/tree/main/infra) (`main.tf`, `services.tf`, `variables.tf`,
+`outputs.tf` y `.terraform.lock.hcl`; el estado **no** está en el repositorio), entrado con el [Pull Request
+#40](https://github.com/facundobruna/Sistema-Reservas-Nuevo/pull/40), merge `2b2d36d`.
+
+**b) El release del práctico:** [v8.0.0](https://github.com/facundobruna/Sistema-Reservas-Nuevo/releases/tag/v8.0.0), sobre el
+commit del merge (`2b2d36d`), que es el que cierra la infraestructura.
+
+**c) Preprod:** no hay un entorno vivo para mostrar: llego a la defensa con preprod **destruido** y lo creo en vivo con `terraform
+apply`. Cuando existe queda en https://reservas-front-preprod.onrender.com (front) y https://reservas-api-preprod.onrender.com
+(API, con `/api/v1/health`). QA y PROD siguen vivos, los de la tabla del TP7.
+
+---
+
 ## Enlaces del TP7
 
 **a) Los dos paquetes públicos en ghcr.io**, con el tag `sha-<commit>` de lo que está en PROD
@@ -1469,3 +1485,74 @@ la corrida que integración quedaba verde, e2e roja y `deploy-prod` omitido; rev
 `sha-` de cada corrida y, para PROD, que `4da2816` no aparece); bajé las imágenes por tag; y puedo explicar **qué verifica cada test,
 contra qué entorno corre y qué pasa si falla**: las dos suites corren contra QA (la integración contra la API, la e2e contra el
 front), y si fallan frenan la promoción: `deploy-prod` no arranca.
+
+---
+
+## TP8 — Infraestructura como código con Terraform
+
+### Riel elegido y versiones fijadas
+
+Elegí **Terraform con Neon y Render**, los mismos proveedores donde ya viven QA y producción. Preprod es un tercer entorno
+declarado en `infra/` y creado con `terraform apply`: un proyecto de Neon con su rol y su base (`app_preprod`) y dos web services
+de Render (api y front) que corren las imágenes del TP7 con el tag fijo `sha-15502799f391c60d33bd4b03358ebc53f0af43ff`, el commit
+de `v7.0.0`, el mismo que está en producción. El tag va fijo a propósito: así preprod es reproducible y no cambia solo.
+
+| Provider | Versión fijada |
+|---|---|
+| `kislerdm/neon` | 0.18.0 |
+| `render-oss/render` | 1.9.1 |
+| `hashicorp/random` | 3.7.2 |
+
+El `random` lo sumé yo para que la clave de firma de tokens (`AUTH_SECRET`) la genere Terraform con `random_password` y no la
+escriba nadie. El `.terraform.lock.hcl` está commiteado, así que `terraform init` instala exactamente esas versiones en cualquier
+máquina.
+
+- **Sin credenciales en el código.** Los providers leen `NEON_API_KEY`, `RENDER_API_KEY` y `RENDER_OWNER_ID` del entorno, y el id
+  de la organización de Neon entra como variable (`TF_VAR_neon_org_id`). Las claves están en un archivo fuera del repo.
+- **Valores derivados, no copiados.** La connection string de la API se arma en `locals` con el host, la base, el rol y la
+  contraseña que devuelve Neon. `BACKEND_INTERNAL_URL` del front sale de la URL de la API recién creada. Por eso, si destruyo y
+  recreo todo, el host de la base cambia y la API se conecta igual sin tocar nada.
+- **Estado.** Es local (`terraform.tfstate`) y no se commitea: contiene las contraseñas en texto plano. El `.gitignore` de la raíz
+  ignora `*.tfstate`, `*.tfstate.*`, `.terraform/` y `*.tfvars`, y lo agregué antes del primer `apply`.
+- **Verificación de preprod.** `/api/v1/health` de la API respondió `{"status":"ok","database":"up"}` con 200 (ese endpoint hace
+  `select 1` contra la base de preprod) y el front respondió 200. Con las migraciones y el seed aplicados, `/api/v1/r/demo` devuelve 200 con los datos del restaurante, así que la API lee tablas de su propia base. Probé el ciclo completo `destroy` → `apply` varias veces: el
+  `destroy` borra en orden inverso al de las dependencias (front, API, base, rol, proyecto) y QA y producción no cambiaron en
+  ningún momento.
+- **Entrega.** Código mergeado por el PR #40 (commit `2b2d36d`) y release `v8.0.0` sobre ese commit.
+
+**Límites que conozco:**
+
+- La base de preprod **nace vacía**: Terraform crea la base pero no sus tablas, porque el esquema es un paso de la aplicación.
+  Después de cada `apply` le aplico a mano las migraciones y el seed desde mi máquina (`pnpm db:migrate` y `pnpm db:seed`), con la
+  URL de conexión que sale del estado de Terraform; es lo mismo que hice en QA y producción. El pipeline no las ejecuta y
+  Terraform tampoco: automatizarlas en el pipeline es una mejora pendiente.
+- Los servicios `free` de Render **no se pueden modificar** desde el provider: solo se crean y se destruyen.
+- Preprod **no está conectado al pipeline**: el tag de la imagen se cambia a mano en `infra/variables.tf`.
+- El estado es **local**: si pierdo `terraform.tfstate` con preprod vivo, Terraform deja de reconocer lo que creó.
+
+### Problemas encontrados y cómo los resolví
+
+- **Neon rechazó crear el proyecto** con `HTTP 400: org_id is required`. Las cuentas de Neon viven dentro de una organización y la
+  API exige indicarla. Agregué el argumento `org_id` al `neon_project` y lo paso con una variable de entorno `TF_VAR_neon_org_id`,
+  sin escribirlo en el código. No quedó nada creado a medias porque falló en el primer recurso.
+- **Corrí `terraform destroy` desde la carpeta equivocada.** Lo ejecuté parado en `backend` y respondió «No objects need to be
+  destroyed»: destruyó 0 recursos y preprod siguió vivo, gastando horas gratuitas. Terraform trabaja con el código y el estado de
+  la carpeta donde estoy, y en `backend` no hay ninguno. Lo corrí de nuevo desde `infra` y verifiqué en las consolas que preprod
+  ya no estaba y que QA y producción seguían intactos. Desde entonces miro en qué carpeta estoy antes de cada comando de
+  Terraform.
+
+
+### Declaración de uso de IA
+
+Usé **Claude** como asistente durante todo el TP, paso a paso. Con su ayuda se escribió el HCL de `infra/` (`main.tf`,
+`services.tf`, `variables.tf`, `outputs.tf`), se armaron los comandos y se leyeron los planes y los errores, y el borrador de esta
+sección. **Las decisiones las tomé yo:** Terraform con Neon y Render, generar `AUTH_SECRET` con `random_password`, aplicar las
+migraciones a mano en preprod, qué tag de imagen usar y qué clicks hacer en las consolas de Neon y Render. Claude no pudo correr Terraform, así
+que nada de lo que escribió estaba probado hasta que lo corrí yo; las claves de API nunca las compartí con la IA.
+
+**Cómo lo verifiqué:** ejecuté yo `terraform init`, `fmt`, `validate`, `plan`, `apply` y `destroy` y leí cada `plan` antes de
+aplicar; comprobé que después del `apply` el siguiente `plan` dice `No changes`; probé desde afuera `/api/v1/health` (200 con
+`database: up`) y el front (200); hice el ejercicio de drift sobre la base de Neon y el de `prevent_destroy` (el `destroy` falla
+sin borrar nada, y después lo quité); revisé en las consolas de Render y Neon que el `destroy` borra solo lo de preprod y que QA y
+producción siguen intactos; y puedo explicar **qué es `(known after apply)`, por qué el `destroy` va al revés del `apply`, qué
+contiene el estado y por qué no se commitea**.
