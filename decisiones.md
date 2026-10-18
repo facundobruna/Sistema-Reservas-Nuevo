@@ -1515,17 +1515,17 @@ máquina.
 - **Estado.** Es local (`terraform.tfstate`) y no se commitea: contiene las contraseñas en texto plano. El `.gitignore` de la raíz
   ignora `*.tfstate`, `*.tfstate.*`, `.terraform/` y `*.tfvars`, y lo agregué antes del primer `apply`.
 - **Verificación de preprod.** `/api/v1/health` de la API respondió `{"status":"ok","database":"up"}` con 200 (ese endpoint hace
-  `select 1` contra la base de preprod) y el front respondió 200. Probé el ciclo completo `destroy` → `apply` varias veces: el
+  `select 1` contra la base de preprod) y el front respondió 200. Con las migraciones y el seed aplicados, `/api/v1/r/demo` devuelve 200 con los datos del restaurante, así que la API lee tablas de su propia base. Probé el ciclo completo `destroy` → `apply` varias veces: el
   `destroy` borra en orden inverso al de las dependencias (front, API, base, rol, proyecto) y QA y producción no cambiaron en
   ningún momento.
 - **Entrega.** Código mergeado por el PR #40 (commit `2b2d36d`) y release `v8.0.0` sobre ese commit.
 
 **Límites que conozco:**
 
-- La base de preprod **nace vacía**: Terraform crea la base pero no sus tablas. En QA y producción las apliqué a mano con las
-  migraciones del backend (`pnpm db:migrate` o la imagen `migrator`), y en preprod no lo hice; el pipeline no las aplica y
-  Terraform tampoco. Por eso su `/api/v1/health` prueba que la API llega a la base (`select 1`), pero las pantallas que leen o
-  escriben datos no andarían.
+- La base de preprod **nace vacía**: Terraform crea la base pero no sus tablas, porque el esquema es un paso de la aplicación.
+  Después de cada `apply` le aplico a mano las migraciones y el seed desde mi máquina (`pnpm db:migrate` y `pnpm db:seed`), con la
+  URL de conexión que sale del estado de Terraform; es lo mismo que hice en QA y producción. El pipeline no las ejecuta y
+  Terraform tampoco: automatizarlas en el pipeline es una mejora pendiente.
 - Los servicios `free` de Render **no se pueden modificar** desde el provider: solo se crean y se destruyen.
 - Preprod **no está conectado al pipeline**: el tag de la imagen se cambia a mano en `infra/variables.tf`.
 - El estado es **local**: si pierdo `terraform.tfstate` con preprod vivo, Terraform deja de reconocer lo que creó.
@@ -1535,14 +1535,19 @@ máquina.
 - **Neon rechazó crear el proyecto** con `HTTP 400: org_id is required`. Las cuentas de Neon viven dentro de una organización y la
   API exige indicarla. Agregué el argumento `org_id` al `neon_project` y lo paso con una variable de entorno `TF_VAR_neon_org_id`,
   sin escribirlo en el código. No quedó nada creado a medias porque falló en el primer recurso.
+- **Corrí `terraform destroy` desde la carpeta equivocada.** Lo ejecuté parado en `backend` y respondió «No objects need to be
+  destroyed»: destruyó 0 recursos y preprod siguió vivo, gastando horas gratuitas. Terraform trabaja con el código y el estado de
+  la carpeta donde estoy, y en `backend` no hay ninguno. Lo corrí de nuevo desde `infra` y verifiqué en las consolas que preprod
+  ya no estaba y que QA y producción seguían intactos. Desde entonces miro en qué carpeta estoy antes de cada comando de
+  Terraform.
 
 
 ### Declaración de uso de IA
 
 Usé **Claude** como asistente durante todo el TP, paso a paso. Con su ayuda se escribió el HCL de `infra/` (`main.tf`,
 `services.tf`, `variables.tf`, `outputs.tf`), se armaron los comandos y se leyeron los planes y los errores, y el borrador de esta
-sección. **Las decisiones las tomé yo:** Terraform con Neon y Render, generar `AUTH_SECRET` con `random_password`, dejar la base
-de preprod vacía, qué tag de imagen usar y qué clicks hacer en las consolas de Neon y Render. Claude no pudo correr Terraform, así
+sección. **Las decisiones las tomé yo:** Terraform con Neon y Render, generar `AUTH_SECRET` con `random_password`, aplicar las
+migraciones a mano en preprod, qué tag de imagen usar y qué clicks hacer en las consolas de Neon y Render. Claude no pudo correr Terraform, así
 que nada de lo que escribió estaba probado hasta que lo corrí yo; las claves de API nunca las compartí con la IA.
 
 **Cómo lo verifiqué:** ejecuté yo `terraform init`, `fmt`, `validate`, `plan`, `apply` y `destroy` y leí cada `plan` antes de
