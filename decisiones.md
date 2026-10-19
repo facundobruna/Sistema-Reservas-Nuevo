@@ -5,6 +5,29 @@ el historial es uno solo y es lo que se defiende en el Integrador.
 
 ---
 
+## Enlaces del TP9
+
+**a) Dependabot:** [`.github/dependabot.yml`](https://github.com/facundobruna/Sistema-Reservas-Nuevo/blob/main/.github/dependabot.yml)
+(npm en `/backend`, npm en `/frontend` y GitHub Actions en `/`, revisión semanal), entrado con el [Pull Request
+#42](https://github.com/facundobruna/Sistema-Reservas-Nuevo/pull/42). El Pull Request de Dependabot que analicé y mergeé es el
+[#52](https://github.com/facundobruna/Sistema-Reservas-Nuevo/pull/52) (`vitest` 4.1.9 → 4.1.11 en `/frontend`).
+
+**b) CodeQL y push protection:** el primer análisis de la configuración por defecto está en [Security → Code
+scanning](https://github.com/facundobruna/Sistema-Reservas-Nuevo/security/code-scanning). Sus 5 avisos (permisos del workflow)
+los trabajé con el [Pull Request #53](https://github.com/facundobruna/Sistema-Reservas-Nuevo/pull/53). Push protection y secret
+scanning están activos en Settings → Advanced Security.
+
+**c) Sentry en producción:** subido por el [Pull Request #54](https://github.com/facundobruna/Sistema-Reservas-Nuevo/pull/54)
+(back y front). El endpoint de prueba `/api/v1/falla` se quitó con el [#56](https://github.com/facundobruna/Sistema-Reservas-Nuevo/pull/56).
+La tarjeta del tablero nacida de un dato de Sentry es el [issue #55](https://github.com/facundobruna/Sistema-Reservas-Nuevo/issues/55).
+
+**d) El release del práctico:** [v9.0.0](https://github.com/facundobruna/Sistema-Reservas-Nuevo/releases/tag/v9.0.0), sobre el
+commit del merge del #56 (`6c0472d`), que es el que deja el código del TP9 como queda en producción.
+
+**e) Monitor externo:** UptimeRobot sobre el health de producción. Termina **pausado** (ver más abajo por qué).
+
+---
+
 ## Enlaces del TP8
 
 **a) El código de la infraestructura**, en `main`: [carpeta
@@ -1556,3 +1579,150 @@ aplicar; comprobé que después del `apply` el siguiente `plan` dice `No changes
 sin borrar nada, y después lo quité); revisé en las consolas de Render y Neon que el `destroy` borra solo lo de preprod y que QA y
 producción siguen intactos; y puedo explicar **qué es `(known after apply)`, por qué el `destroy` va al revés del `apply`, qué
 contiene el estado y por qué no se commitea**.
+
+---
+
+## TP9 — DevSecOps, observabilidad y feedback continuo
+
+### Seguridad en el pipeline: tres capas
+
+La idea de *shift-left* es encontrar los problemas lo más a la izquierda posible del camino (en el editor, en el push, en el
+Pull Request) y no en producción, donde corregirlos sale más caro. Lo armé en tres capas, una por cada lugar donde puede entrar
+algo malo al repositorio:
+
+| Capa | Qué protege | Herramienta | Cuándo actúa |
+|------|-------------|-------------|--------------|
+| Secretos | claves y tokens subidos por error | secret scanning + push protection | al hacer `git push` (bloquea) |
+| Dependencias | código de terceros con vulnerabilidades conocidas (CVE) | Dependabot (alertas y PRs) | de forma continua, semanal |
+| Código propio | fallas de seguridad en lo que escribo (inyección, permisos, etc.) | CodeQL (SAST) | en cada push y Pull Request |
+
+Las dependencias importan porque la mayor parte del código que corre en la aplicación no la escribí yo: está en `node_modules`.
+Una vulnerabilidad ahí se hereda sin que yo haya tocado nada.
+
+### Dependabot: qué actualizó y por qué lo mergeé
+
+Dejé `.github/dependabot.yml` con tres ecosistemas (npm en `/backend`, npm en `/frontend` y GitHub Actions en `/`), revisión
+semanal y un máximo de 3 Pull Requests abiertos por ecosistema para que no me inunde. Activé también las alertas de Dependabot y
+las *security updates* en Settings → Advanced Security.
+
+El Pull Request que analicé es el **#52**: subió **`vitest` de 4.1.9 a 4.1.11 en `/frontend`**. Lo mergeé porque:
+
+- es un cambio **patch** (último número), que por convención semver solo corrige errores y no cambia la interfaz;
+- es una dependencia de **desarrollo**: corre mis tests, no viaja en la imagen que se despliega;
+- el pipeline quedó **verde**, incluidos los tests y el umbral de cobertura del front, que es justo (96 % de líneas), así que si
+  la actualización hubiera roto algo lo habría frenado.
+
+Lo que Dependabot **no** hace: no sabe si mi código usa la parte afectada de una librería, no arregla vulnerabilidades sin parche
+publicado y no reemplaza revisar el cambio. Abre el Pull Request; la decisión de mergear sigue siendo mía, apoyada en el pipeline.
+En la rama principal, GitHub avisa de más alertas abiertas (34 al momento de subir el PR de Sentry) que todavía no clasifiqué por
+paquete: pendiente.
+
+### CodeQL y push protection
+
+CodeQL quedó con la **configuración por defecto** y su primer análisis terminó en Security → Code scanning. Encontró **5 avisos de
+severidad media**, todos iguales: *«Workflow does not contain permissions»* en el `ci.yml`. Los analicé: en este repositorio el
+permiso por defecto del `GITHUB_TOKEN` es de solo lectura (*read repository contents and packages*), así que el riesgo real era
+bajo, pero el aviso es correcto en el principio: el token debe tener **solo lo que cada trabajo necesita** (mínimo privilegio) y
+no depender de un valor por defecto que otra persona puede cambiar.
+
+Lo arreglé con el **Pull Request #53**: un bloque `permissions: contents: read` a nivel de todo el workflow. Los dos jobs que
+publican imágenes en ghcr declaran sus propios permisos, que **reemplazan** al bloque general (el de un job pisa al del workflow), y
+lo que no se nombra queda prohibido. Los tests no encuentran este tipo de fallas: comprueban que el código *hace* lo que
+debe, no que *no haga de más*; CodeQL lee el código buscando patrones inseguros que ningún test ejercita.
+
+**Push protection** y secret scanning los verifiqué **activos** en Settings → Advanced Security. Bloquea un `git push` que
+contiene un secreto con formato reconocible (un token de GitHub, de AWS, etc.) *antes* de que llegue al repositorio; no detecta
+secretos sin formato conocido (una contraseña cualquiera en una variable), por eso las claves de este proyecto nunca van al
+código: van en variables de entorno y en los secretos del entorno.
+
+### Monitor externo (UptimeRobot)
+
+Configuré un monitor de UptimeRobot sobre el health de **producción** (`/api/v1/health`, que además hace un `select 1` a la base:
+si la base cae, falla). Es **externo** a propósito: si la API se cae, un monitor que corre dentro de la misma API cae con ella y no
+avisa; el que mira desde afuera ve lo mismo que un usuario.
+
+Provoqué la caída suspendiendo el servicio de la API en Render a las **10:14**. UptimeRobot marcó **DOWN a las 10:21**: tardó
+**7 minutos** en avisar, porque en el plan gratuito revisa cada 5 minutos.
+Reanudé el servicio a las 10:21 y el **UP** se registró a las **10:35**, **14 minutos** después: me había olvidado de despertar el
+servicio con una llamada (los servicios gratuitos de Render duermen a los 15 minutos de inactividad y el primer pedido lo
+despierta), así que el monitor siguió viéndolo caído hasta que arrancó.
+
+Dejé el monitor **pausado** al terminar. Los servicios gratuitos de Render comparten un cupo de **750 horas de instancia por mes**
+y un monitor cada 5 minutos mantiene el servicio despierto las 24 horas; si el cupo se agota, Render suspende **todos** los
+servicios del workspace, producción incluida. Lo reactivo solo para mostrarlo en la defensa. Una alerta útil es la que avisa de
+algo que requiere acción, a quien puede actuar y a tiempo; este monitor lo cumple porque avisa solo ante una caída real.
+
+### Sentry en producción
+
+Subí Sentry al back y al front por Pull Request (#54), con el mismo pipeline que cualquier otro cambio.
+
+- **Backend:** `@sentry/nextjs` 11.8.0 con `instrumentation.ts` (que Next ejecuta al arrancar el servidor) y
+  `sentry.server.config.ts`. El DSN se lee de la variable de entorno **`SENTRY_DSN`**, que solo definí en el servicio de API de
+  **producción**: en el back de QA y en los tests Sentry queda apagado.
+- **Frontend:** `instrumentation-client.ts` con el DSN escrito en el código y `environment` igual al hostname. Es público a
+  propósito: el DSN solo permite **enviar** eventos a mi proyecto, no leerlos, y el navegador lo tiene que recibir igual. Y como la
+  imagen del front es **la misma** para QA y producción («build once, deploy many»), no se puede inyectar por entorno; el
+  `environment` es lo que distingue de dónde viene cada evento.
+- Para ver un error real agregué un endpoint temporal `/api/v1/falla` que lanza una excepción, lo llamé 5 veces y lo quité con el
+  Pull Request #56 (hoy responde 404).
+
+Lo que Sentry cuenta y el monitor no: el monitor dice **que** el servicio no responde; Sentry dice **qué falló dentro**: la
+excepción, el stack, cuántas veces y en qué pedido. Y mide **rendimiento**: cuánto tarda cada operación y cuántas veces se usa.
+
+### Qué muestran los datos y la tarjeta #55
+
+- **Error:** `Falla de prueba del TP9`, **5 eventos** en el proyecto del back, uno por llamada.
+- **Operación más usada:** `GET /api/v1/r/[slug]` con **32** pedidos. Es una cifra **sintética**: casi todos salen del script de
+  `curl` que usé para generar tráfico, y casi todos con respuesta 404, porque en producción **no existe el restaurante `demo`** (el
+  seed lo cargué a mano solo en QA y preprod). No es uso real de personas, y lo digo así a propósito.
+- **Operación más lenta:** `HEAD /_not-found`, **3,80 s** en el pedido de ejemplo (4,09 s en la tabla agregada), con el siguiente,
+  tres segundos después, en 294 ms. Casi todo el tiempo fue el primer renderizado de la página tras arrancar. Lo verifiqué: el
+  *deploy* quedó vivo en Render a las **11:26** y es la hora del pedido lento. Son pocas muestras, así que no es una latencia
+  típica: es el costo del **arranque en frío**.
+- **Tarjeta:** de ese dato nació el [issue #55](https://github.com/facundobruna/Sistema-Reservas-Nuevo/issues/55) en el tablero
+  del TP3, «Investigar el arranque en frío de la API en PROD», con el criterio de medir cuánto tarda el primer pedido después de
+  un deploy o una suspensión y decidir si hace falta mitigarlo.
+
+Los errores 4xx (los 404 y 401 que provoqué) **no** aparecen en Issues: son respuestas que la aplicación da a propósito, no
+excepciones sin manejar.
+
+### Límites que dejé
+
+- Desactivé los *source maps* de Sentry: los stacks del back salen sin mapear al código original. Es un costo menor para este TP.
+- El DSN del front está en el repositorio (público a propósito, explicado arriba). El back solo reporta desde producción; el front,
+  al ser la misma imagen, también reporta desde QA, y se distingue por el `environment`.
+- Los datos de uso son **sintéticos** y de pocos minutos; no permiten conclusiones sobre usuarios reales.
+- Sentry y UptimeRobot conservan sus datos unos 30 días: antes de la defensa puedo tener que generar tráfico y otro corte.
+- No clasifiqué todavía las 34 alertas de Dependabot de la rama principal.
+
+### Problemas encontrados y cómo los resolví
+
+- **El monitor tardó 14 minutos en marcar UP** en vez de los pocos esperados: no había despertado el servicio tras reanudarlo.
+  Aprendí que «reanudado» y «respondiendo» no son lo mismo en el plan gratuito.
+- **`pnpm build` del backend falló** con `withSentryConfig is not a function`. Reinstalar el paquete no lo arregló. Bajé el
+  paquete exacto (11.8.0) y leí los `exports` de su `package.json`: en esa versión la función ya no se importa de
+  `@sentry/nextjs` sino de **`@sentry/nextjs/config`**. Cambié el import y el build pasó.
+- **Corrí los comandos del front parado en `backend`:** el archivo `instrumentation-client.ts` y la instalación quedaron en la
+  carpeta equivocada. Lo vi en el `git status` (paths sin `frontend/`), moví el archivo y reinstalé en el lugar correcto. Es la
+  misma lección del TP8: miro en qué carpeta estoy antes de cada comando.
+- **El botón «Panel del restaurante» de la portada de producción daba 404.** No es un error de Sentry ni del despliegue: el
+  restaurante `demo` no existe en la base de producción, y la página lo busca. Lo dejé como hallazgo, no lo «arreglé» cargando
+  datos de prueba en producción.
+
+### Declaración de uso de IA
+
+Usé **Claude** como asistente durante todo el TP, paso a paso. Con su ayuda se escribió `dependabot.yml`, el bloque de `permissions`
+del pipeline, los archivos de Sentry del back y del front, se armaron los comandos y el script de tráfico, se interpretaron
+los datos de Sentry y se redactó el borrador de esta sección. **Las decisiones las tomé yo:** qué ecosistemas vigila Dependabot,
+mergear el #52, el DSN público del front y por variable de entorno en el back, activar Sentry solo en producción, pausar el monitor
+y de qué dato nace la tarjeta. Claude no pudo correr `pnpm build` ni abrir Sentry o UptimeRobot, así que lo que escribió no estaba
+probado hasta que lo corrí yo; y una de sus indicaciones salió mal (me dijo que el #52 era del backend, y era del frontend), que
+corregí al comprobarlo en el historial.
+
+**Cómo lo verifiqué:** corrí `pnpm lint`, los tests y `pnpm build` del back y del front, y la cobertura del front pasó los umbrales
+(96,77 % de líneas contra 96); el pipeline de cada Pull Request quedó verde; comprobé en Sentry el error con sus 5 eventos y las
+navegaciones del front; verifiqué en producción que `/api/v1/falla` ahora da 404 y que `/api/v1/health` responde 200; en
+UptimeRobot el monitor figura **Paused**; y confirmé en los *Events* de Render que el deploy quedó vivo a las 11:26, la hora del
+pedido más lento. Puedo explicar **qué es shift-left, por qué casi todo el código es de terceros, qué hace y qué no hace
+Dependabot, qué bloquea y qué no push protection, qué ve CodeQL que no ven los tests, por qué el monitor es externo y por qué lo
+pausé, qué dice Sentry que el monitor no, y por qué el DSN del front puede estar en un repositorio público**.
