@@ -21,6 +21,7 @@
     "test:coverage": "vitest run tests/unit --coverage"
   },
   "dependencies": {
+    "@sentry/nextjs": "^11.8.0",
     "drizzle-orm": "^0.45.2",
     "luxon": "^3.7.2",
     "mercadopago": "^3.2.0",
