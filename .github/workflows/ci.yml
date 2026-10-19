@@ -7,6 +7,11 @@ on:
   push:
     branches: [main]   # para que main tenga su propia corrida, que es la que lee el badge
 
+# Permisos del GITHUB_TOKEN para TODO el workflow: solo leer el código. Lo que no se nombra
+# queda prohibido. Los dos jobs que publican imágenes declaran los suyos y reemplazan este bloque.
+permissions:
+  contents: read
+
 # Una corrida por rama a la vez. Si empujo un commit nuevo mientras la corrida
 # anterior de ese mismo Pull Request sigue trabajando, la vieja se cancela: su
 # resultado ya no le sirve a nadie, porque verifica un código que quedó atrás.
