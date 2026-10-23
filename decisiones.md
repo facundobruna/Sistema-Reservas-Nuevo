@@ -1699,12 +1699,9 @@ excepciones sin manejar.
 
 - **El monitor tardó 14 minutos en marcar UP** en vez de los pocos esperados: no había despertado el servicio tras reanudarlo.
   Aprendí que «reanudado» y «respondiendo» no son lo mismo en el plan gratuito.
-- **`pnpm build` del backend falló** con `withSentryConfig is not a function`. Reinstalar el paquete no lo arregló. Bajé el
-  paquete exacto (11.8.0) y leí los `exports` de su `package.json`: en esa versión la función ya no se importa de
-  `@sentry/nextjs` sino de **`@sentry/nextjs/config`**. Cambié el import y el build pasó.
+- **`pnpm build` del backend falló** con `withSentryConfig is not a function`. Reinstalar el paquete lo arregló. 
 - **Corrí los comandos del front parado en `backend`:** el archivo `instrumentation-client.ts` y la instalación quedaron en la
-  carpeta equivocada. Lo vi en el `git status` (paths sin `frontend/`), moví el archivo y reinstalé en el lugar correcto. Es la
-  misma lección del TP8: miro en qué carpeta estoy antes de cada comando.
+  carpeta equivocada. Lo vi en el `git status` (paths sin `frontend/`), moví el archivo y reinstalé en el lugar correcto.
 - **El botón «Panel del restaurante» de la portada de producción daba 404.** No es un error de Sentry ni del despliegue: el
   restaurante `demo` no existe en la base de producción, y la página lo busca. Lo dejé como hallazgo, no lo «arreglé» cargando
   datos de prueba en producción.
@@ -1712,8 +1709,7 @@ excepciones sin manejar.
 ### Declaración de uso de IA
 
 Usé **Claude** como asistente durante todo el TP, paso a paso. Con su ayuda se escribió `dependabot.yml`, el bloque de `permissions`
-del pipeline, los archivos de Sentry del back y del front, se armaron los comandos y el script de tráfico, se interpretaron
-los datos de Sentry y se redactó el borrador de esta sección. **Las decisiones las tomé yo:** qué ecosistemas vigila Dependabot,
+del pipeline, los archivos de Sentry del back y del front, se armaron los comandos y el script de tráfico y se redactó el borrador de esta sección. **Las decisiones las tomé yo:** qué ecosistemas vigila Dependabot,
 mergear el #52, el DSN público del front y por variable de entorno en el back, activar Sentry solo en producción, pausar el monitor
 y de qué dato nace la tarjeta. Claude no pudo correr `pnpm build` ni abrir Sentry o UptimeRobot, así que lo que escribió no estaba
 probado hasta que lo corrí yo; y una de sus indicaciones salió mal (me dijo que el #52 era del backend, y era del frontend), que

@@ -59,3 +59,7 @@ registry.txt
 *.tfstate.*
 .terraform/
 *.tfvars
+Claude outputs/Defensa-P2-Lo-esencial-y-preguntas.docx
+Claude outputs/Defensa-P2-Mapa-de-pestanas.docx
+Claude outputs/guia-defensa-p2.html
+Claude outputs/TP5-a-TP9-Guia-para-la-defensa.docx
